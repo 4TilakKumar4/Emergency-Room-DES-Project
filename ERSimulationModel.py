@@ -20,7 +20,6 @@ Validation targets (empirical from er_synthetic_5000_patients.csv):
   E[doctor wait] ≈ 249.67 min    5.5% zero wait
   E[LOS]         ≈ 285.63 min
 
-Author  : Tilak
 Input   : Sources/simrng_parameters.csv
 Outputs : Results/*.png,  Results/ED_rep_results.csv
 """

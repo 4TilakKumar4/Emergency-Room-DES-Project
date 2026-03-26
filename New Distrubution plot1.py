@@ -7,7 +7,6 @@ inter-arrival times using three approaches:
   2. Severity-stratified
   3. Service times vs. wait times (simulation input vs. validation)
 
-Author  : Tilak
 Input   : Sources/er_synthetic_5000_patients.csv
 Outputs : Results/*.png  (10 diagnostic plots)
 """
