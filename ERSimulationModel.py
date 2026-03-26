@@ -1,6 +1,7 @@
 """
 Emergency Department Discrete-Event Simulation
 
+
 System:   1 receptionist, 2 triage nurses, 3 physicians
 Arrivals: Non-Homogeneous Poisson Process (NHPP), hour-by-hour rates
 Service:  Severity-specific distributions from simrng_parameters.csv
@@ -31,10 +32,9 @@ import math
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import SimFunctions
-import SimRNG
-import SimClasses
-
+from sim_engine import SimFunctions
+from sim_engine   import SimRNG
+from sim_engine import SimClasses
 
 # File paths — edit here only if the project structure changes
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))

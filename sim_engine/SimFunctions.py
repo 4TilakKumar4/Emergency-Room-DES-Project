@@ -1,5 +1,5 @@
 
-import SimClasses
+from sim_engine import SimClasses
 
 def SimFunctionsInit(calendar,queues,ctstats,dtstats,resources):
     # Function to initialize SimFunctions.Python
