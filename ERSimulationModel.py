@@ -20,6 +20,7 @@ Validation targets (empirical from er_synthetic_5000_patients.csv):
   E[doctor wait] ≈ 249.67 min    5.5% zero wait
   E[LOS]         ≈ 285.63 min
 
+Author  : Tilak
 Input   : Sources/simrng_parameters.csv
 Outputs : Results/*.png,  Results/ED_rep_results.csv
 """
@@ -276,7 +277,8 @@ def endRegistration(ev) -> None:
     p         = ev.WhichObject
     p.reg_end = SimClasses.Clock
     # Wait = time patient spent in the registration queue before the clerk was free
-    regWait.Record(p.reg_start - p.CreateTime)
+    if p.CreateTime >= WARMUP_MIN:
+        regWait.Record(p.reg_start - p.CreateTime)
     clerk.Free(1)
     triageQueue.Add(p)
     if nurses.Busy < nurses.NumberOfUnits:
@@ -297,7 +299,8 @@ def endTriage(ev) -> None:
     p            = ev.WhichObject
     p.triage_end = SimClasses.Clock
     # Wait = time between leaving registration and a nurse becoming available
-    triageWait.Record(p.triage_start - p.reg_end)
+    if p.CreateTime >= WARMUP_MIN:
+        triageWait.Record(p.triage_start - p.reg_end)
     nurses.Free(1)
     doctorQueue.Add(p)
     if doctors.Busy < doctors.NumberOfUnits:
@@ -317,8 +320,11 @@ def startDoctor() -> None:
 def endDoctor(ev) -> None:
     p = ev.WhichObject
     # Wait = time between leaving triage and a doctor becoming available
-    doctorWait.Record(p.doc_start - p.triage_end)
-    LOS.Record(SimClasses.Clock - p.CreateTime)
+    if p.CreateTime >= WARMUP_MIN:
+        doctorWait.Record(p.doc_start - p.triage_end)
+    # Only record LOS for patients who arrived after the warmup period
+    if p.CreateTime >= WARMUP_MIN:
+        LOS.Record(SimClasses.Clock - p.CreateTime)
     doctors.Free(1)
     if doctorQueue.NumQueue() > 0:
         startDoctor()
@@ -381,7 +387,7 @@ def printResults(results: pd.DataFrame) -> None:
         ("triageWait", "Triage wait     (min)"),
         ("doctorWait", "Doctor wait     (min)"),
         ("LOS",        "Length of stay  (min)"),
-        ("ClerkUtil",  "clerk util      (%)  "),
+        ("ClerkUtil",  "Clerk util      (%)  "),
         ("NurseUtil",  "Nurse util      (%)  "),
         ("DoctorUtil", "Doctor util     (%)  "),
     ]
@@ -490,11 +496,11 @@ def main() -> None:
     printParams(theParams)
 
     # Run all replications
-    print(f"\n\n")
+    print(f"\n\n{'#' * 80}")
     print("RUNNING SIMULATION")
     print(f"  {NUM_REPS} replications  |  {int(WARMUP_MIN)} min warmup  |  "
           f"{int(RUN_MIN)} min steady-state run")
-    print("\n")
+    print(f"{'#' * 80}")
 
     repResults = []
     for rep in range(NUM_REPS):

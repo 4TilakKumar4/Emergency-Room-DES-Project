@@ -157,6 +157,48 @@ class FIFOQueue():
     def Mean(self):
         # Return the average number in queue up to the current time
         return self.WIP.Mean()
+    
+# SimClasses.py
+class PriorityQueue:
+    """
+    Priority queue with continuous-time WIP statistics.
+    key_func maps each entity to a numeric priority value — lower means
+    higher priority. Entities of equal priority retain FIFO order.
+    """
+    """
+    Example usage:
+    PRIORITY = {'critical': 1, 'serious': 2, 'minor': 3}
+    priorityKey = lambda p: PRIORITY[p.severity]
+
+    triageQueue = SimClasses.PriorityQueue(priorityKey)
+    doctorQueue = SimClasses.PriorityQueue(priorityKey)
+    """
+    def __init__(self, key_func):
+        self.WIP       = CTStat()
+        self.ThisQueue = []
+        self._key      = key_func
+
+    def Add(self, entity) -> None:
+        pos = len(self.ThisQueue)
+        for i, e in enumerate(self.ThisQueue):
+            if self._key(entity) < self._key(e):
+                pos = i
+                break
+        self.ThisQueue.insert(pos, entity)
+        self.WIP.Record(float(len(self.ThisQueue)))
+
+    def Remove(self):
+        if not self.ThisQueue:
+            return None
+        entity = self.ThisQueue.pop(0)
+        self.WIP.Record(float(len(self.ThisQueue)))
+        return entity
+
+    def NumQueue(self) -> int:
+        return len(self.ThisQueue)
+
+    def Mean(self) -> float:
+        return self.WIP.Mean()
         
 class Resource():
     # This is a generic Resource object that also keeps track of statistics
