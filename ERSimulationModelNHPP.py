@@ -42,7 +42,7 @@ RESULTS_DIR = os.path.join(BASE_DIR, "Results")
 
 
 # Simulation run parameters
-NUM_REPS   = 50
+NUM_REPS   = 100
 WARMUP_MIN = 480.0    # 8-hour warmup
 RUN_MIN    = 1440.0   # 24-hour steady-state run
 
@@ -161,11 +161,24 @@ def nextInterarrival() -> float:
 def assignSeverity() -> str:
     return SEV_LABELS[SimRNG.Random_integer(SEV_PROBS, STREAM_SEVERITY)]
 
+def printConfig() -> None:
+    print(f"\n\n{'-' * 80}")
+    print(f"SIMULATION CONFIGURATION")
+    print(f"{'-' * 80}")
+    print(f"Number of replications : {NUM_REPS}")
+    print(f"Warmup period         : {int(WARMUP_MIN)} minutes")
+    print(f"Steady-state run      : {int(RUN_MIN)} minutes")
+    print(f"Resources             : {N_CLERKS} clerk(s), "
+          f"{N_NURSES} nurse(s), {N_DOCTORS} doctor(s)")
+    print(f"Random streams        : arrival={STREAM_ARRIVAL}, "
+          f"severity={STREAM_SEVERITY}, reg={STREAM_REG}, "
+          f"triage={STREAM_TRIAGE}, doctor={STREAM_DOCTOR}")
+
 
 def printParams(params: dict) -> None:
-    print(f"\n{'=' * 80}")
+    print(f"\n{'-' * 80}")
     print("SERVICE TIME PARAMETERS  (Approach 2 — severity-stratified)")
-    print(f"{'=' * 80}")
+    print(f"{'-' * 80}")
     labels = {"reg": "Registration", "triage": "Triage", "doctor": "Doctor"}
     for stage, label in labels.items():
         print(f"\n  {label}:")
@@ -334,6 +347,7 @@ def runReplication() -> dict:
     SimFunctions.SimFunctionsInit(
         calendar, theQueues, theCTStats, theDTStats, theResources
     )
+
     for pq in [triageQueue, doctorQueue]:
         pq.WIP.Clear()
         pq.WIP.Xlast = 0.0
@@ -377,9 +391,9 @@ def ci95(series: pd.Series) -> tuple[float, float]:
 
 
 def printResults(results: pd.DataFrame) -> None:
-    print(f"\n\n{'=' * 80}")
+    print(f"\n\n")
     print("RESULTS SUMMARY  (50 replications, 95% CI)")
-    print(f"{'=' * 80}")
+    print(f"{'-' * 80}")
 
     metrics = [
         ("regWait",    "Reg wait        (min)"),
@@ -488,18 +502,23 @@ def plotUtilisation(results: pd.DataFrame) -> None:
 
 def main() -> None:
     ensureResultsDir(RESULTS_DIR)
+    
 
     # Load fitted service time parameters from simrng_parameters.csv
     global theParams
     theParams = loadParams(PARAMS_FILE)
+    printConfig()
     printParams(theParams)
 
+
     # Run all replications
-    print(f"\n\n{'#' * 80}")
+    print(f"\n\n")
     print("RUNNING SIMULATION")
-    print(f"  {NUM_REPS} replications  |  {int(WARMUP_MIN)} min warmup  |  "
+    print(f"\n  {NUM_REPS} replications  |  {int(WARMUP_MIN)} min warmup  |  "
           f"{int(RUN_MIN)} min steady-state run")
-    print(f"{'#' * 80}")
+    print(f"{'-' * 80}")
+
+    print(f"\n Progress:")
 
     repResults = []
     for rep in range(NUM_REPS):
