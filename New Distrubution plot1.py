@@ -49,12 +49,12 @@ STAGE_COLORS = ["#3498db", "#f39c12", "#e74c3c", "#27ae60"]
 SIGNIFICANCE = 0.05
 
 
-def ensure_results_dir(path: str) -> None:
+def createOutputDirectory(path: str) -> None:
     """Create the results directory if it does not already exist."""
     os.makedirs(path, exist_ok=True)
 
 
-def fit_distributions(data: np.ndarray) -> tuple[str, tuple, float, float, list[dict]]:
+def findBestFittingDistribution(data: np.ndarray) -> tuple[str, tuple, float, float, list[dict]]:
     """
     Fit every distribution in DISTRIBUTIONS to *data* and return the best one.
 
@@ -63,7 +63,7 @@ def fit_distributions(data: np.ndarray) -> tuple[str, tuple, float, float, list[
 
     Parameters
     ----------
-    data : 1-D array of strictly positive floats.
+    data : 1-D array of strictly filterPositiveValues floats.
 
     Returns
     -------
@@ -98,13 +98,13 @@ def fit_distributions(data: np.ndarray) -> tuple[str, tuple, float, float, list[
     return best_name, best_params, best_ks, best_pval, all_fits
 
 
-def _positive(series: pd.Series | np.ndarray) -> np.ndarray:
-    """Strip zeros and NaNs — fitting requires strictly positive values."""
+def filterPositiveValues(series: pd.Series | np.ndarray) -> np.ndarray:
+    """Strip zeros and NaNs — fitting requires strictly filterPositiveValues values."""
     arr = series.values if isinstance(series, pd.Series) else np.asarray(series)
     return arr[arr > 0]
 
 
-def _print_fits(all_fits: list[dict], best_name: str) -> None:
+def printKsTestResults(all_fits: list[dict], best_name: str) -> None:
     """Print KS results for every candidate, highlighting the winner."""
     for f in all_fits:
         tag  = "GOOD " if f["pval"] > SIGNIFICANCE else "     "
@@ -112,7 +112,7 @@ def _print_fits(all_fits: list[dict], best_name: str) -> None:
         print(f"    {tag} {f['name']:15s}: KS={f['ks']:.4f},  p={f['pval']:.4f}{star}")
 
 
-def _save(fig: plt.Figure, filename: str) -> None:
+def saveFigure(fig: plt.Figure, filename: str) -> None:
     """Save a figure to the Results folder and immediately close it to free memory."""
     path = os.path.join(RESULTS_DIR, filename)
     fig.savefig(path, dpi=150, bbox_inches="tight")
@@ -120,7 +120,7 @@ def _save(fig: plt.Figure, filename: str) -> None:
     print(f"  Saved → {path}")
 
 
-def _pdf_curve(
+def evaluatePdfOverRange(
     dist_name: str, params: tuple, data: np.ndarray, x_vals: np.ndarray
 ) -> np.ndarray | None:
     """Evaluate the PDF of a fitted distribution over x_vals; return None on error."""
@@ -130,7 +130,7 @@ def _pdf_curve(
         return None
 
 
-def load_data(filepath: str) -> pd.DataFrame:
+def loadAndPreparePatientData(filepath: str) -> pd.DataFrame:
     """
     Read the patient CSV, parse arrival timestamps, and derive the
     inter-arrival time column by differencing consecutive arrival times.
@@ -149,7 +149,7 @@ def load_data(filepath: str) -> pd.DataFrame:
     return df
 
 
-def print_dataset_overview(df: pd.DataFrame) -> None:
+def printSummaryStatistics(df: pd.DataFrame) -> None:
     """Print patient counts, date range, resource counts, and mean service times."""
     print(f"\n{'=' * 80}")
     print("DATASET OVERVIEW")
@@ -183,7 +183,7 @@ def print_dataset_overview(df: pd.DataFrame) -> None:
         print(f"    {label:<25}: {df[col].dropna().mean():6.2f} min")
 
 
-def run_approach1(df: pd.DataFrame) -> list[dict]:
+def fitPooledDistributions(df: pd.DataFrame) -> list[dict]:
     """
     Fit a single distribution to ALL patients for each time variable.
     Assumption: severity level does not affect service or inter-arrival times.
@@ -204,10 +204,10 @@ def run_approach1(df: pd.DataFrame) -> list[dict]:
 
     results = []
     for name, series in variables.items():
-        data = _positive(series)
-        best_name, best_params, best_ks, best_pval, all_fits = fit_distributions(data)
+        data = filterPositiveValues(series)
+        best_name, best_params, best_ks, best_pval, all_fits = findBestFittingDistribution(data)
         print(f"\n--- {name}  (n={len(data):,},  mean={data.mean():.2f},  sd={data.std():.2f}) ---")
-        _print_fits(all_fits, best_name)
+        printKsTestResults(all_fits, best_name)
         results.append({
             "Variable": name, "n": len(data),
             "Mean": data.mean(), "Std": data.std(),
@@ -224,7 +224,7 @@ def run_approach1(df: pd.DataFrame) -> list[dict]:
     return results
 
 
-def run_approach2(df: pd.DataFrame) -> list[dict]:
+def fitSeverityStratifiedDistributions(df: pd.DataFrame) -> list[dict]:
     """
     Fit a separate distribution for every (stage, severity) combination.
     Quantifies whether severity materially changes service time and determines
@@ -246,16 +246,16 @@ def run_approach2(df: pd.DataFrame) -> list[dict]:
     for stage_name, col in stage_cols.items():
         print(f"\n{'=' * 60}\nSTAGE: {stage_name}\n{'=' * 60}")
         for sev in SEVERITIES:
-            data = _positive(df[df["severity"] == sev][col])
+            data = filterPositiveValues(df[df["severity"] == sev][col])
 
             # Skip severity groups that are too small to fit reliably
             if len(data) < 10:
                 print(f"  [{sev.upper()}]  Skipped — fewer than 10 observations.")
                 continue
 
-            best_name, best_params, best_ks, best_pval, all_fits = fit_distributions(data)
+            best_name, best_params, best_ks, best_pval, all_fits = findBestFittingDistribution(data)
             print(f"\n  {sev.upper()}  (n={len(data):,},  mean={data.mean():.2f},  sd={data.std():.2f}):")
-            _print_fits(all_fits, best_name)
+            printKsTestResults(all_fits, best_name)
             results.append({
                 "Stage": stage_name, "Severity": sev, "n": len(data),
                 "Mean": data.mean(), "Std": data.std(),
@@ -272,9 +272,9 @@ def run_approach2(df: pd.DataFrame) -> list[dict]:
     return results
 
 
-def compare_pooled_vs_severity(
-    approach1_results: list[dict],
-    approach2_results: list[dict],
+def evaluateSeverityImpact(
+    approach1Results: list[dict],
+    approach2Results: list[dict],
     df: pd.DataFrame,
 ) -> None:
     """
@@ -290,8 +290,8 @@ def compare_pooled_vs_severity(
     print(f"\n\nPOOLED vs. SEVERITY-SPECIFIC — DOES SEVERITY MATTER?")
     print("-" * 70)
     for stage_name in stage_cols:
-        pooled   = next(r for r in approach1_results if r["Variable"] == stage_name)
-        sev_rows = [r for r in approach2_results if r["Stage"] == stage_name]
+        pooled   = next(r for r in approach1Results if r["Variable"] == stage_name)
+        sev_rows = [r for r in approach2Results if r["Stage"] == stage_name]
         means    = [r["Mean"] for r in sev_rows]
 
         # Guard: if all severity groups were skipped (< 10 obs each), skip this stage
@@ -312,7 +312,7 @@ def compare_pooled_vs_severity(
         print(f"    >>> {verdict}  ({pct_spread:.0f}% spread)")
 
 
-def run_approach3(df: pd.DataFrame) -> tuple[list[dict], list[dict]]:
+def separateServiceAndWaitFits(df: pd.DataFrame) -> tuple[list[dict], list[dict]]:
     """
     Separate service-time distributions (fed into the simulation as inputs)
     from wait-time distributions (used only to validate simulation output).
@@ -337,8 +337,8 @@ def run_approach3(df: pd.DataFrame) -> tuple[list[dict], list[dict]]:
     print(f"\n--- SERVICE TIMES (simulation inputs) ---")
     service_results = []
     for name, series in service_vars.items():
-        data = _positive(series)
-        best_name, best_params, best_ks, best_pval, all_fits = fit_distributions(data)
+        data = filterPositiveValues(series)
+        best_name, best_params, best_ks, best_pval, all_fits = findBestFittingDistribution(data)
         print(f"  {name:<25}: {best_name}  (mean={data.mean():.2f},  p={best_pval:.4f})")
         service_results.append({
             "Variable": name, "Type": "SERVICE (Input)", "n": len(data),
@@ -349,7 +349,7 @@ def run_approach3(df: pd.DataFrame) -> tuple[list[dict], list[dict]]:
     print(f"\n--- WAIT TIMES (validation targets) ---")
     wait_results = []
     for name, series in wait_vars.items():
-        data   = _positive(series)
+        data   = filterPositiveValues(series)
         total  = len(series)
         waited = len(data)
         pct_w  = waited / total * 100
@@ -359,7 +359,7 @@ def run_approach3(df: pd.DataFrame) -> tuple[list[dict], list[dict]]:
             print(f"  {name:<25}: SKIPPED — only {waited} patients waited.")
             continue
 
-        best_name, best_params, best_ks, best_pval, all_fits = fit_distributions(data)
+        best_name, best_params, best_ks, best_pval, all_fits = findBestFittingDistribution(data)
         print(f"  {name:<25}: {best_name}  (mean={data.mean():.2f},  p={best_pval:.4f})")
         print(f"    {waited:,}/{total:,} patients waited ({pct_w:.1f}%);  "
               f"{total - waited:,} had zero wait.")
@@ -393,7 +393,7 @@ def run_approach3(df: pd.DataFrame) -> tuple[list[dict], list[dict]]:
     return service_results, wait_results
 
 
-def plot_approach1_fits(results: list[dict]) -> None:
+def plotPooledHistogramsWithFits(results: list[dict]) -> None:
     """
     2×2 grid of histograms with all candidate PDF curves overlaid.
     The winning distribution is drawn in solid black; others are grey dashed.
@@ -413,7 +413,7 @@ def plot_approach1_fits(results: list[dict]) -> None:
         # Evaluate every candidate PDF and overlay, highlighting the winner
         x_vals = np.linspace(max(1e-6, data.min()), np.percentile(data, 99), 300)
         for f in r["all_fits"]:
-            pdf = _pdf_curve(f["name"], f["params"], data, x_vals)
+            pdf = evaluatePdfOverRange(f["name"], f["params"], data, x_vals)
             if pdf is None:
                 continue
             is_best = f["name"] == r["Best Dist"]
@@ -432,10 +432,10 @@ def plot_approach1_fits(results: list[dict]) -> None:
         ax.legend(fontsize=7)
 
     plt.tight_layout()
-    _save(fig, "approach1_pooled_fits.png")
+    saveFigure(fig, "approach1_pooled_fits.png")
 
 
-def plot_approach1_qq(results: list[dict]) -> None:
+def plotPooledQqPlots(results: list[dict]) -> None:
     """
     2×2 Q-Q plots for the pooled fits.
     Points close to the red 45° line indicate a good fit; deviations in the
@@ -465,10 +465,10 @@ def plot_approach1_qq(results: list[dict]) -> None:
         ax.legend(fontsize=8)
 
     plt.tight_layout()
-    _save(fig, "approach1_qq_plots.png")
+    saveFigure(fig, "approach1_qq_plots.png")
 
 
-def plot_approach2_fits(approach2_results: list[dict]) -> None:
+def plotSeverityHistogramsPerStage(approach2Results: list[dict]) -> None:
     """
     One 1×3 histogram figure per service stage, with one subplot per severity.
     Lets you visually compare whether the distribution shape shifts across
@@ -486,7 +486,7 @@ def plot_approach2_fits(approach2_results: list[dict]) -> None:
 
         for idx, sev in enumerate(SEVERITIES):
             ax   = axes[idx]
-            rows = [r for r in approach2_results
+            rows = [r for r in approach2Results
                     if r["Stage"] == stage_name and r["Severity"] == sev]
 
             # Hide the subplot if this severity group has no fit results
@@ -500,7 +500,7 @@ def plot_approach2_fits(approach2_results: list[dict]) -> None:
             ax.hist(data, bins=30, density=True, alpha=0.6,
                     color=SEV_COLORS[sev], edgecolor="white", label="Data")
             x_vals = np.linspace(max(1e-6, data.min()), np.percentile(data, 99), 300)
-            pdf    = _pdf_curve(r["Best Dist"], r["Params"], data, x_vals)
+            pdf    = evaluatePdfOverRange(r["Best Dist"], r["Params"], data, x_vals)
             if pdf is not None:
                 ax.plot(x_vals, pdf, "k-", linewidth=3,
                         label=f'{r["Best Dist"]} (p={r["p-value"]:.4f})')
@@ -516,10 +516,10 @@ def plot_approach2_fits(approach2_results: list[dict]) -> None:
 
         plt.tight_layout()
         safe = stage_name.replace(" ", "_")
-        _save(fig, f"approach2_{safe}.png")
+        saveFigure(fig, f"approach2_{safe}.png")
 
 
-def plot_approach2_qq(approach2_results: list[dict]) -> None:
+def plotSeverityQqPlotsPerStage(approach2Results: list[dict]) -> None:
     """
     One 1×3 Q-Q figure per service stage to assess fit quality within each
     severity group independently.
@@ -536,7 +536,7 @@ def plot_approach2_qq(approach2_results: list[dict]) -> None:
 
         for idx, sev in enumerate(SEVERITIES):
             ax   = axes[idx]
-            rows = [r for r in approach2_results
+            rows = [r for r in approach2Results
                     if r["Stage"] == stage_name and r["Severity"] == sev]
             if not rows:
                 ax.set_visible(False)
@@ -560,12 +560,12 @@ def plot_approach2_qq(approach2_results: list[dict]) -> None:
 
         plt.tight_layout()
         safe = stage_name.replace(" ", "_")
-        _save(fig, f"approach2_qq_{safe}.png")
+        saveFigure(fig, f"approach2_qq_{safe}.png")
 
 
-def plot_approach3(df: pd.DataFrame,
-                   service_results: list[dict],
-                   wait_results: list[dict]) -> None:
+def plotServiceVsWaitDistributions(df: pd.DataFrame,
+                  serviceResults: list[dict],
+                  waitResults: list[dict]) -> None:
     """
     2×3 figure: top row shows service time distributions (simulation inputs),
     bottom row shows wait time distributions (validation targets).
@@ -578,13 +578,13 @@ def plot_approach3(df: pd.DataFrame,
     )
 
     # Top row — one subplot per service stage
-    for idx, r in enumerate(service_results):
+    for idx, r in enumerate(serviceResults):
         ax   = axes[0, idx]
         data = r["data"]
         ax.hist(data, bins=35, density=True, alpha=0.6,
                 color="#3498db", edgecolor="white", label="Data")
         x_vals = np.linspace(max(1e-6, data.min()), np.percentile(data, 99), 300)
-        pdf    = _pdf_curve(r["Best Dist"], r["Params"], data, x_vals)
+        pdf    = evaluatePdfOverRange(r["Best Dist"], r["Params"], data, x_vals)
         if pdf is not None:
             ax.plot(x_vals, pdf, "k-", linewidth=3,
                     label=f'{r["Best Dist"]} (p={r["p-value"]:.4f})')
@@ -613,11 +613,11 @@ def plot_approach3(df: pd.DataFrame,
                     color="#e74c3c", edgecolor="white", label=f"Waited (n={len(nonzero):,})")
 
             # Look up the pre-fitted result for this wait variable
-            match = next((r for r in wait_results if r["Variable"] == name), None)
+            match = next((r for r in waitResults if r["Variable"] == name), None)
             if match:
                 x_vals = np.linspace(max(1e-6, nonzero.min()),
                                      np.percentile(nonzero, 99), 300)
-                pdf = _pdf_curve(match["Best Dist"], match["Params"], nonzero, x_vals)
+                pdf = evaluatePdfOverRange(match["Best Dist"], match["Params"], nonzero, x_vals)
                 if pdf is not None:
                     ax.plot(x_vals, pdf, "k-", linewidth=3,
                             label=f'{match["Best Dist"]} (p={match["p-value"]:.4f})')
@@ -634,12 +634,12 @@ def plot_approach3(df: pd.DataFrame,
         ax.legend(fontsize=7)
 
     plt.tight_layout()
-    _save(fig, "approach3_service_vs_wait.png")
+    saveFigure(fig, "approach3_service_vs_wait.png")
 
 
-def plot_comparison(df: pd.DataFrame,
-                    approach1_results: list[dict],
-                    approach2_results: list[dict]) -> None:
+def plotSeverityOverlayPerStage(df: pd.DataFrame,
+                   approach1Results: list[dict],
+                   approach2Results: list[dict]) -> None:
     """
     Overlay the three severity histograms on a single axis per stage with the
     pooled fitted curve on top. The subplot title shows the absolute spread
@@ -656,12 +656,12 @@ def plot_comparison(df: pd.DataFrame,
 
     for idx, (stage_name, col) in enumerate(stage_cols.items()):
         ax     = axes[idx]
-        pooled = next(r for r in approach1_results if r["Variable"] == stage_name)
+        pooled = next(r for r in approach1Results if r["Variable"] == stage_name)
         means  = []
 
         # Semi-transparent severity histograms stacked on the same axis
         for sev in SEVERITIES:
-            sub = _positive(df[df["severity"] == sev][col])
+            sub = filterPositiveValues(df[df["severity"] == sev][col])
             means.append(sub.mean())
             ax.hist(sub, bins=30, density=True, alpha=0.30,
                     color=SEV_COLORS[sev],
@@ -669,7 +669,7 @@ def plot_comparison(df: pd.DataFrame,
 
         # Pooled fitted curve drawn on top for reference
         x_vals = np.linspace(1e-6, np.percentile(pooled["data"], 99), 300)
-        pdf    = _pdf_curve(pooled["Best Dist"], pooled["Params"], pooled["data"], x_vals)
+        pdf    = evaluatePdfOverRange(pooled["Best Dist"], pooled["Params"], pooled["data"], x_vals)
         if pdf is not None:
             ax.plot(x_vals, pdf, "k--", linewidth=2,
                     label=f'Pooled {pooled["Best Dist"]}')
@@ -683,10 +683,10 @@ def plot_comparison(df: pd.DataFrame,
         ax.legend(fontsize=8)
 
     plt.tight_layout()
-    _save(fig, "comparison_pooled_vs_severity.png")
+    saveFigure(fig, "comparison_pooled_vs_severity.png")
 
 
-def to_simrng_params(dist_name: str, scipy_params: tuple, data: np.ndarray) -> dict:
+def convertToSimrngParameters(dist_name: str, scipy_params: tuple, data: np.ndarray) -> dict:
     """
     Convert scipy MLE parameters into the arguments expected by SimRNG.py.
 
@@ -694,7 +694,7 @@ def to_simrng_params(dist_name: str, scipy_params: tuple, data: np.ndarray) -> d
       Expon(Mean, Stream)
       Normal(Mean, Variance, Stream)
       Lognormal(MeanPrime, VariancePrime, Stream)  -- takes raw-data mean/variance
-      Erlang(m, Mean, Stream)                      -- m must be a positive integer
+      Erlang(m, Mean, Stream)                      -- m must be a filterPositiveValues integer
       Triangular(a, b, c, Stream)                  -- a=min, b=mode, c=max
     Gamma and Weibull have no direct SimRNG equivalent; Erlang is used as the
     closest approximation for Gamma (shape rounded to nearest integer).
@@ -723,7 +723,7 @@ def to_simrng_params(dist_name: str, scipy_params: tuple, data: np.ndarray) -> d
 
     elif dist_name == "Gamma":
         # Gamma has no direct SimRNG function; approximate with Erlang by
-        # rounding the shape parameter to the nearest positive integer.
+        # rounding the shape parameter to the nearest filterPositiveValues integer.
         # Mean of a scipy Gamma = a * scale + loc — loc must be included.
         a, loc, scale = scipy_params
         m    = max(1, round(a))
@@ -798,18 +798,18 @@ def to_simrng_params(dist_name: str, scipy_params: tuple, data: np.ndarray) -> d
         }
 
 
-def save_simrng_csv(approach1_results: list[dict],
-                    approach2_results: list[dict],
-                    service_results:   list[dict],
-                    wait_results:      list[dict]) -> None:
+def exportSimrngParametersCsv(approach1Results: list[dict],
+                  approach2Results: list[dict],
+                  serviceResults:   list[dict],
+                  waitResults:      list[dict]) -> None:
     """
     Build a flat CSV where every row is one fitted variable and contains the
     SimRNG-compatible parameters needed to call the matching function directly.
     """
     rows = []
 
-    for r in approach1_results:
-        p = to_simrng_params(r["Best Dist"], r["Params"], r["data"])
+    for r in approach1Results:
+        p = convertToSimrngParameters(r["Best Dist"], r["Params"], r["data"])
         rows.append({
             "Approach": "1 - Pooled", "Variable": r["Variable"],
             "Severity": "all", "Type": "Pooled",
@@ -819,8 +819,8 @@ def save_simrng_csv(approach1_results: list[dict],
             **p,
         })
 
-    for r in approach2_results:
-        p = to_simrng_params(r["Best Dist"], r["Params"], r["data"])
+    for r in approach2Results:
+        p = convertToSimrngParameters(r["Best Dist"], r["Params"], r["data"])
         rows.append({
             "Approach": "2 - Severity", "Variable": r["Stage"],
             "Severity": r["Severity"], "Type": "Service",
@@ -830,8 +830,8 @@ def save_simrng_csv(approach1_results: list[dict],
             **p,
         })
 
-    for r in service_results:
-        p = to_simrng_params(r["Best Dist"], r["Params"], r["data"])
+    for r in serviceResults:
+        p = convertToSimrngParameters(r["Best Dist"], r["Params"], r["data"])
         rows.append({
             "Approach": "3 - Service/Wait", "Variable": r["Variable"],
             "Severity": "all", "Type": "Service (Input)",
@@ -841,8 +841,8 @@ def save_simrng_csv(approach1_results: list[dict],
             **p,
         })
 
-    for r in wait_results:
-        p = to_simrng_params(r["Best Dist"], r["Params"], r["data"])
+    for r in waitResults:
+        p = convertToSimrngParameters(r["Best Dist"], r["Params"], r["data"])
         rows.append({
             "Approach": "3 - Service/Wait", "Variable": r["Variable"],
             "Severity": "all", "Type": "Wait (Validation)",
@@ -857,7 +857,7 @@ def save_simrng_csv(approach1_results: list[dict],
     print(f"\n  SimRNG parameters saved → {out_path}")
 
 
-def _compute_key_findings(approach2_results: list[dict]) -> list[str]:
+def summarizeSeverityImpact(approach2Results: list[dict]) -> list[str]:
     """
     Derive KEY FINDINGS dynamically from the actual computed approach-2 spreads
     rather than printing hardcoded text that may not match the real data.
@@ -869,7 +869,7 @@ def _compute_key_findings(approach2_results: list[dict]) -> list[str]:
     }
     lines = []
     for stage_name in stage_cols:
-        sev_rows = [r for r in approach2_results if r["Stage"] == stage_name]
+        sev_rows = [r for r in approach2Results if r["Stage"] == stage_name]
         if not sev_rows:
             lines.append(f"  {stage_name:<25}: NO DATA")
             continue
@@ -886,37 +886,37 @@ def _compute_key_findings(approach2_results: list[dict]) -> list[str]:
     return lines
 
 
-def print_final_summary(approach1_results: list[dict],
-                        approach2_results: list[dict],
-                        service_results:   list[dict],
-                        wait_results:      list[dict]) -> None:
+def printAllApproachResults(approach1Results: list[dict],
+                      approach2Results: list[dict],
+                      serviceResults:   list[dict],
+                      waitResults:      list[dict]) -> None:
     """Print a consolidated table of all fitted distributions and key findings."""
     print(f"\n\n{'=' * 80}")
     print("COMPLETE SUMMARY — ALL THREE APPROACHES")
     print(f"{'=' * 80}")
 
     print("\nAPPROACH 1  (Pooled — simulation inputs):")
-    for r in approach1_results:
+    for r in approach1Results:
         params_str = ", ".join(f"{p:.4f}" for p in r["Params"])
         print(f"  {r['Variable']:<25}: {r['Best Dist']}({params_str})"
               f"  |  mean={r['Mean']:.2f},  p={r['p-value']:.4f}")
 
     print("\nAPPROACH 2  (Severity-specific — richer fits):")
-    for r in approach2_results:
+    for r in approach2Results:
         print(f"  {r['Stage']:<25}  {r['Severity']:<8}: {r['Best Dist']}"
               f"  |  mean={r['Mean']:.2f},  p={r['p-value']:.4f}")
 
     print("\nAPPROACH 3  (Service vs. wait — separated):")
     print("  SERVICE (simulation inputs):")
-    for r in service_results:
+    for r in serviceResults:
         print(f"    {r['Variable']:<25}: {r['Best Dist']}  |  mean={r['Mean']:.2f}")
     print("  WAIT (validation targets):")
-    for r in wait_results:
+    for r in waitResults:
         print(f"    {r['Variable']:<25}: {r['Best Dist']}"
               f"  |  mean={r['Mean']:.2f}  ({r['pct_waited']:.0f}% of patients waited)")
 
     print("\nKEY FINDINGS (computed from actual data):")
-    for line in _compute_key_findings(approach2_results):
+    for line in summarizeSeverityImpact(approach2Results):
         print(line)
 
     plots = [
@@ -939,34 +939,34 @@ def print_final_summary(approach1_results: list[dict],
 
 
 def main() -> None:
-    ensure_results_dir(RESULTS_DIR)
+    createOutputDirectory(RESULTS_DIR)
 
     # Load and inspect the raw dataset
-    df = load_data(SOURCE_FILE)
-    print_dataset_overview(df)
+    df = loadAndPreparePatientData(SOURCE_FILE)
+    printSummaryStatistics(df)
 
     # Run all three fitting approaches and collect results
-    approach1_results             = run_approach1(df)
-    approach2_results             = run_approach2(df)
-    compare_pooled_vs_severity(approach1_results, approach2_results, df)
-    service_results, wait_results = run_approach3(df)
+    approach1Results             = fitPooledDistributions(df)
+    approach2Results             = fitSeverityStratifiedDistributions(df)
+    evaluateSeverityImpact(approach1Results, approach2Results, df)
+    serviceResults, waitResults  = separateServiceAndWaitFits(df)
 
-    # Generate and save all diagnostic plots
+    # Generate and saveFigure all diagnostic plots
     print("\n\nGenerating plots...")
-    plot_approach1_fits(approach1_results)
-    plot_approach1_qq(approach1_results)
-    plot_approach2_fits(approach2_results)
-    plot_approach2_qq(approach2_results)
-    plot_approach3(df, service_results, wait_results)
-    plot_comparison(df, approach1_results, approach2_results)
+    plotPooledHistogramsWithFits(approach1Results)
+    plotPooledQqPlots(approach1Results)
+    plotSeverityHistogramsPerStage(approach2Results)
+    plotSeverityQqPlotsPerStage(approach2Results)
+    plotServiceVsWaitDistributions(df, serviceResults, waitResults)
+    plotSeverityOverlayPerStage(df, approach1Results, approach2Results)
 
     # Export SimRNG-compatible parameters to CSV
-    save_simrng_csv(approach1_results, approach2_results,
-                    service_results, wait_results)
+    exportSimrngParametersCsv(approach1Results, approach2Results,
+                  serviceResults, waitResults)
 
     # Print the consolidated results table to console
-    print_final_summary(approach1_results, approach2_results,
-                        service_results, wait_results)
+    printAllApproachResults(approach1Results, approach2Results,
+                      serviceResults, waitResults)
 
 
 if __name__ == "__main__":
