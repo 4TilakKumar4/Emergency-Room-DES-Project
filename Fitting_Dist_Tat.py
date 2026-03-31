@@ -7,7 +7,7 @@ inter-arrival times using three approaches:
   2. Severity-stratified
   3. Service times vs. wait times (simulation input vs. validation)
 
-Input   : Sources/er_synthetic_5000_patients.csv
+Input   : Sources/er_5000_patients.csv
 Outputs : Results/*.png, Results/simrng_parameters.csv
 """
 
@@ -23,7 +23,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 
 # File paths — edit here only if the project structure changes
-SOURCE_FILE = os.path.join("Sources", "er_synthetic_5000_patients.csv")
+SOURCE_FILE = os.path.join("Sources", "er_5000_patients.csv")
 RESULTS_DIR = "Results"
 
 # Candidate distribution families tested against every time variable
