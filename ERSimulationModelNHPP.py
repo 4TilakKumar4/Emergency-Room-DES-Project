@@ -1,5 +1,5 @@
 """
-Emergency Department Discrete-Event Simulation
+Emergency Room Discrete-Event Simulation
 
 
 System:   1 receptionist, 2 triage nurses, 3 physicians
@@ -15,7 +15,7 @@ Outputs (50 replications, 95% CI):
   - Results/ED_utilisation.png
   - Results/ED_rep_results.csv
 
-Validation targets (empirical from er_synthetic_5000_patients.csv):
+Validation targets (empirical from er_5000_patients.csv):
   E[reg wait]    ≈   4.67 min   44.1% zero wait
   E[triage wait] ≈   0.01 min   99.4% zero wait
   E[doctor wait] ≈ 249.67 min    5.5% zero wait

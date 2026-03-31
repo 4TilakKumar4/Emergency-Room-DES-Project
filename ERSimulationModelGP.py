@@ -1,5 +1,5 @@
 """
-Emergency Department Discrete-Event Simulation
+Emergency Room Discrete-Event Simulation
 
 System:   1 receptionist, 2 triage nurses, 3 physicians
 Arrivals: Non-Homogeneous Poisson Process (NHPP) with GP-modeled rates
@@ -18,13 +18,13 @@ Outputs (100 replications, 95% CI):
   - Results/ED_gp_posterior.png
   - Results/ED_rep_results.csv
 
-Validation targets (empirical from er_synthetic_5000_patients.csv):
+Validation targets (empirical from er_5000_patients.csv):
   E[reg wait]    ≈   4.67 min   44.1% zero wait
   E[triage wait] ≈   0.01 min   99.4% zero wait
   E[doctor wait] ≈ 249.67 min    5.5% zero wait
   E[LOS]         ≈ 285.63 min
 
-Input   : Sources/er_synthetic_5000_patients.csv,  Sources/simrng_parameters.csv
+Input   : Sources/er_5000_patients.csv,  Sources/simrng_parameters.csv
 Outputs : Results/*.png,  Results/ED_rep_results.csv
 """
 
@@ -42,7 +42,7 @@ from sim_engine.ArrivalRateGP import ArrivalRateGP
 
 # File paths — edit here only if the project structure changes
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
-SOURCE_FILE = os.path.join(BASE_DIR, "Sources", "er_synthetic_5000_patients.csv")
+SOURCE_FILE = os.path.join(BASE_DIR, "Sources", "er_5000_patients.csv")
 PARAMS_FILE = os.path.join(BASE_DIR, "Sources", "simrng_parameters.csv")
 RESULTS_DIR = os.path.join(BASE_DIR, "Results")
 
