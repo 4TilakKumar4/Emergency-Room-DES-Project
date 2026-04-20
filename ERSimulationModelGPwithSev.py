@@ -51,10 +51,15 @@ NUM_REPS   = 100
 WARMUP_MIN = 480.0    # 8-hour warmup
 RUN_MIN    = 1440.0   # 24-hour steady-state run
 
-# System configuration
+# System configuration — can be patched by DOE_Optimization before each scenario
 N_CLERKS  = 1
 N_NURSES  = 2
 N_DOCTORS = 3
+
+# Shift-change schedule for variable-staffing what-if experiments.
+# Each entry is (time_in_minutes, new_doctor_count).
+# Empty list means constant staffing throughout (default baseline behaviour).
+DOCTOR_SCHEDULE = []
 
 # Random number streams — one per independent source of randomness
 STREAM_ARRIVAL  = 1
@@ -186,10 +191,25 @@ def assignSeverity() -> str:
     return SEV_LABELS[SimRNG.Random_integer(SEV_PROBS, STREAM_SEVERITY)]
 
 
+def buildGP() -> "ArrivalRateGP":
+    """
+    Load arrival data, fit the GP arrival rate model, and populate theParams.
+
+    Called once by DOE_Optimization before running any scenarios so the GP
+    is not re-fitted for every staffing configuration.
+
+    Returns the fitted ArrivalRateGP instance ready for sampleRateCurve().
+    """
+    global theParams
+    hourlyCounts = buildHourlyCounts(SOURCE_FILE)
+    gp = ArrivalRateGP(period=24.0, nRestarts=20, randomState=42)
+    gp.fit(hourlyCounts)
+    theParams = loadParams(PARAMS_FILE)
+    return gp
+
+
 def printParams(params: dict) -> None:
-    print(f"\n{'=' * 80}")
-    print("SERVICE TIME PARAMETERS  (Approach 2 — severity-stratified)")
-    print(f"{'=' * 80}")
+    print("\nSERVICE TIME PARAMETERS  (Approach 2 — severity-stratified)")
     labels = {"reg": "Registration", "triage": "Triage", "doctor": "Doctor"}
     for stage, label in labels.items():
         print(f"\n  {label}:")
@@ -368,6 +388,28 @@ def endDoctor(ev) -> None:
         startDoctor()
 
 
+def shiftChange(ev) -> None:
+    """
+    Adjust the number of doctors at a scheduled shift boundary.
+
+    The new doctor count is stored in ev.WhichObject (an integer).
+    Both the module-level N_DOCTORS constant and the Resource capacity
+    are updated so utilisation calculations remain correct.
+
+    If the new count is lower and some doctors are busy, SetUnits records
+    the new capacity — busy doctors finish their current patients before
+    the reduction takes effect, mirroring real shift hand-off behaviour.
+    """
+    global N_DOCTORS
+    newCount  = ev.WhichObject
+    N_DOCTORS = newCount
+    doctors.SetUnits(newCount)
+
+    # If capacity increased, start serving any waiting patients immediately
+    while doctors.Busy < doctors.NumberOfUnits and doctorQueue.NumQueue() > 0:
+        startDoctor()
+
+
 def runReplication(rateFn: callable) -> dict:
     """
     Run one replication with the given GP-sampled rate function.
@@ -375,6 +417,10 @@ def runReplication(rateFn: callable) -> dict:
     The rate function is stored in _currentRateFn so nextInterarrival() can
     access it without changing its signature — keeping all event function
     interfaces unchanged from the baseline model.
+
+    Shift-change events are scheduled from DOCTOR_SCHEDULE if non-empty.
+    Each entry (tMinutes, newCount) fires a shiftChange event at that absolute
+    simulation clock time, allowing mid-replication doctor count adjustment.
     """
     global _currentRateFn
     _currentRateFn = rateFn
@@ -387,6 +433,10 @@ def runReplication(rateFn: callable) -> dict:
         pq.WIP.Xlast = 0.0
 
     SimFunctions.Schedule(calendar, "arrival", nextInterarrival())
+
+    # Schedule all doctor shift changes for this replication
+    for tMinutes, newCount in DOCTOR_SCHEDULE:
+        SimFunctions.SchedulePlus(calendar, "shiftChange", tMinutes, newCount)
 
     warmupCleared = False
 
@@ -405,6 +455,7 @@ def runReplication(rateFn: callable) -> dict:
         elif ev.EventType == "endRegistration":  endRegistration(ev)
         elif ev.EventType == "endTriage":        endTriage(ev)
         elif ev.EventType == "endDoctor":        endDoctor(ev)
+        elif ev.EventType == "shiftChange":      shiftChange(ev)
 
     row = {
         "regWait":    regWait.Mean(),
@@ -431,9 +482,7 @@ def ci95(series: pd.Series) -> tuple[float, float]:
 
 
 def printResults(results: pd.DataFrame, decomp: dict) -> None:
-    print(f"\n\n{'=' * 80}")
-    print(f"RESULTS SUMMARY  ({NUM_REPS} replications, 95% CI)")
-    print(f"{'=' * 80}")
+    print(f"\nRESULTS SUMMARY  ({NUM_REPS} replications, 95% CI)")
 
     metrics = [
         ("regWait",    "Reg wait        (min)"),
@@ -450,7 +499,6 @@ def printResults(results: pd.DataFrame, decomp: dict) -> None:
         print(f"  {label}: {m * scale:8.3f}  ±  {hw * scale:.3f}")
 
     print(f"\n  VALIDATION TARGETS (empirical)")
-    print("  " + "-" * 45)
     targets = [
         ("Reg wait",    VALIDATION["regWait"],    "44.1% zero wait"),
         ("Triage wait", VALIDATION["triageWait"], "99.4% zero wait"),
@@ -461,7 +509,6 @@ def printResults(results: pd.DataFrame, decomp: dict) -> None:
         print(f"  {label:<16}: {val:8.2f}  {note}")
 
     print(f"\n  VARIANCE DECOMPOSITION (doctor wait)")
-    print("  " + "-" * 45)
     print(f"  Input uncertainty (GP arrival rates) : "
           f"{decomp['inputVar']:8.4f}  ({decomp['inputFraction'] * 100:.1f}%)")
     print(f"  Simulation noise                     : "
@@ -474,9 +521,7 @@ def printResults(results: pd.DataFrame, decomp: dict) -> None:
              else "simulation noise dominates; more replications help more than more data."))
 
     print(f"\n  WAIT TIMES BY SEVERITY (doctor wait and LOS, 95% CI)")
-    print("  " + "-" * 60)
     print(f"  {'Severity':<10} {'DoctorWait (min)':>20}  {'LOS (min)':>18}")
-    print("  " + "-" * 60)
     for sev in SEVERITIES:
         dw_m, dw_hw = ci95(results[f"doctorWait_{sev}"])
         ls_m, ls_hw = ci95(results[f"LOS_{sev}"])
@@ -605,11 +650,9 @@ def main() -> None:
     printParams(theParams)
 
     # Run all replications
-    print(f"\n\n{'#' * 80}")
-    print("RUNNING SIMULATION  (GP arrival rates — two-level input uncertainty)")
+    print("\nRUNNING SIMULATION  (GP arrival rates — two-level input uncertainty)")
     print(f"  {NUM_REPS} replications  |  {int(WARMUP_MIN)} min warmup  |  "
           f"{int(RUN_MIN)} min steady-state run")
-    print(f"{'#' * 80}")
 
     repResults = []
     for rep in range(NUM_REPS):
