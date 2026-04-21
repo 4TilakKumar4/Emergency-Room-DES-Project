@@ -11,9 +11,9 @@ Outputs (50 replications, 95% CI):
   - Mean wait time per stage
   - Mean length of stay
   - Resource utilisation per resource type
-  - Results/ED_output_analysis.png
-  - Results/ED_utilisation.png
-  - Results/ED_rep_results.csv
+  - Results/simulation/nhpp/ED_output_analysis.png
+  - Results/simulation/nhpp/ED_utilisation.png
+  - Results/simulation/nhpp/ED_rep_results.csv
 
 Validation targets (empirical from er_5000_patients.csv):
   E[reg wait]    ≈   4.67 min   44.1% zero wait
@@ -22,7 +22,7 @@ Validation targets (empirical from er_5000_patients.csv):
   E[LOS]         ≈ 285.63 min
 
 Input   : Sources/simrng_parameters.csv
-Outputs : Results/*.png,  Results/ED_rep_results.csv
+Outputs : Results/simulation/nhpp/*.png,  Results/simulation/nhpp/ED_rep_results.csv
 """
 
 import os
@@ -38,7 +38,7 @@ from sim_engine import SimClasses
 # File paths — edit here only if the project structure changes
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 PARAMS_FILE = os.path.join(BASE_DIR, "Sources", "simrng_parameters.csv")
-RESULTS_DIR = os.path.join(BASE_DIR, "Results")
+RESULTS_DIR = os.path.join(BASE_DIR, "Results", "simulation", "nhpp")
 
 
 # Simulation run parameters

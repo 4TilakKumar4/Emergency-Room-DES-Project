@@ -254,7 +254,7 @@ def runEnumeration(gpModel, activeFactors: dict) -> pd.DataFrame:
     the factorial screening is expected to show clerks are not an active factor.
     """
     nNurses_levels  = activeFactors.get("nNurses",  [2, 3, 4])
-    nDoctors_levels = activeFactors.get("nDoctors", [2, 3, 4])
+    nDoctors_levels = activeFactors.get("nDoctors", [2, 3, 4, 5])
     nClerks_fixed   = activeFactors.get("nClerks",  1)
 
     rows = []

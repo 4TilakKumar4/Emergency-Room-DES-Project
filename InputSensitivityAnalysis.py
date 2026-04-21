@@ -7,14 +7,14 @@ This module implements four sensitivity analyses to understand how input uncerta
   C. Hour-group sensitivity   — peak-hour vs overnight GP uncertainty
   D. Service time bootstrap   — variance decomposition across all input sources
 
-Each analysis is self-contained and writes its output to Results/.
+Each analysis is self-contained and writes its output to Results/sensitivity_analysis/.
 
 Inputs  : Sources/er_5000_patients.csv, Sources/simrng_parameters.csv
-Outputs : Results/sens_A_data_volume.png
-          Results/sens_B_distribution.png
-          Results/sens_C_hour_groups.png
-          Results/sens_D_bootstrap.png
-          Results/sensitivity_summary.csv
+Outputs : Results/sensitivity_analysis/sens_A_data_volume.png
+          Results/sensitivity_analysis/sens_B_distribution.png
+          Results/sensitivity_analysis/sens_C_hour_groups.png
+          Results/sensitivity_analysis/sens_D_bootstrap.png
+          Results/sensitivity_analysis/sensitivity_summary.csv
 """
 
 import os
@@ -38,7 +38,7 @@ from sim_engine.ArrivalRateGP import ArrivalRateGP
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 SOURCE_FILE = os.path.join(BASE_DIR, "Sources", "er_5000_patients.csv")
 PARAMS_FILE = os.path.join(BASE_DIR, "Sources", "simrng_parameters.csv")
-RESULTS_DIR = os.path.join(BASE_DIR, "Results")
+RESULTS_DIR = os.path.join(BASE_DIR, "Results", "sensitivity_analysis")
 
 # Analysis parameters — reduce NUM_REPS for faster iteration if needed
 NUM_REPS   = 100

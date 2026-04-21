@@ -103,7 +103,7 @@ independent variance estimates (which routinely gives negative values).
 
 - Triage Wait (min): simulation 100%, input UQ 0% → dominant: SIMULATION NOISE
 - Physician Wait (min): simulation 100%, input UQ 0% → dominant: SIMULATION NOISE
-- Length of Stay (min): simulation 98%, input UQ 2% → dominant: SIMULATION NOISE
+- Length of Stay (min): simulation 100%, input UQ 0% → dominant: SIMULATION NOISE
 
 This decomposition guides data collection priorities: if input uncertainty dominates,
 additional real-world arrival data matters more than more replications.
