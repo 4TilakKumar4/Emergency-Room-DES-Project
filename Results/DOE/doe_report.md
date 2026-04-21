@@ -61,7 +61,8 @@ conducted over nurses and doctors.
 ## 5.3 Phase 2 — Response Surface Enumeration
 
 With clerks fixed at 1, the full grid of (nNurses, nDoctors) combinations was
-simulated with 30 replications each using CRN. The response surface
+simulated with 30 replications each using CRN. Doctors ranged from 2 to 5
+to capture the full congestion-to-satiated regime transition. The response surface
 heatmap (Figure response_surface.png) shows mean physician wait for every
 combination. Lower values are better.
 
@@ -69,9 +70,9 @@ Top 3 configurations by mean physician wait:
 
 | Rank | Clerks | Nurses | Doctors | Mean Wait (min) | Util |
 |------|--------|--------|---------|----------------|------|
-| 1 | 1 | 2 | 4 | 69.8 ± 4.3 | 69.0% |
-| 2 | 1 | 3 | 4 | 71.8 ± 4.4 | 69.2% |
-| 3 | 1 | 4 | 4 | 71.8 ± 4.4 | 69.2% |
+| 1 | 1 | 3 | 5 | 22.5 ± 2.2 | 55.1% |
+| 2 | 1 | 4 | 5 | 22.5 ± 2.2 | 55.1% |
+| 3 | 1 | 2 | 5 | 22.5 ± 2.2 | 54.7% |
 
 
 The heatmap reveals that physician count is the dominant driver of wait time, with
@@ -90,15 +91,15 @@ threshold chosen to reflect a clinically and operationally meaningful improvemen
 
 Parameters: delta = 10.0 min, alpha = 0.05, n0 = 10 first-stage replications.
 
-The procedure ran for 106 total replications per configuration and
-selected configuration (1 clerk, 2 nurses, 4 doctors) as the best, with the statistical guarantee
+The procedure ran for 546 total replications per configuration and
+selected configuration (1 clerk, 3 nurses, 5 doctors) as the best, with the statistical guarantee
 that the probability of this being an incorrect selection is at most 5%.
 
 Selected optimal configuration:
 - Clerks: 1
-- Nurses: 2
-- Physicians: 4
-- Estimated mean physician wait: 68.2 min
+- Nurses: 3
+- Physicians: 5
+- Estimated mean physician wait: 22.1 min
 - Pr(correct selection): >= 95%
 
 The convergence plot (Figure convergence_ks.png) shows the number of competing
@@ -112,10 +113,12 @@ quickly, focusing simulation effort on the hardest comparisons.
 Three what-if experiments were designed to answer specific policy questions beyond
 the main optimisation. All use CRN pairing against the baseline for valid comparisons.
 
-**What-if 1 — Minimum constant staffing to meet a wait target.**
-Doctor count was varied from 2 to 4 with all other factors fixed at baseline.
-This identifies the minimum number of physicians needed to keep mean physician wait
-below 120 minutes — a common target in ED performance standards.
+**What-if 1 — Constant staffing across the full range (2–5 doctors).**
+Doctor count was varied from 2 to 5 with clerks and nurses fixed at baseline.
+Including 5 doctors quantifies the diminishing returns effect: the reduction in
+mean physician wait from 3→4 doctors is expected to be much larger than from
+4→5, because the system transitions out of the congestion-dominated regime
+near the 4-doctor threshold (physician utilisation drops from ~91% to ~69%).
 
 **What-if 2A — Two-shift staffing policy.**
 Rather than a constant doctor count all day, this experiment models a shift schedule
@@ -139,6 +142,7 @@ against the integer-search result from Phase 3.
 | 2 doctors (constant) | 412.7 | 6.3 | 99.7% |
 | 3 doctors (constant) | 209.5 | 9.7 | 90.7% |
 | 4 doctors (constant) | 71.8 | 4.4 | 69.2% |
+| 5 doctors (constant) | 22.5 | 2.2 | 55.1% |
 | Two-shift (2→4→2) | 148.8 | 6.2 | n/a |
 | 3 doctors (util≈80%) | 209.5 | 9.7 | 90.7% |
 
@@ -157,11 +161,11 @@ First, physician count is the dominant driver of mean physician wait time. The
 factorial main effect for doctors is several times larger than for nurses or clerks,
 and the response surface shows a steep gradient along the doctor axis.
 
-Second, the Kim-Nelson procedure identified (1 clerk, 2 nurses, 4 doctors) as the
+Second, the Kim-Nelson procedure identified (1 clerk, 3 nurses, 5 doctors) as the
 statistically best configuration with Pr(CS) >= 95%. This configuration
 reduces mean physician wait from the baseline of 218 min to
-approximately 68 min — a reduction of
-150 minutes.
+approximately 22 min — a reduction of
+196 minutes.
 
 Third, the two-shift policy (WI-2A) offers a cost-effective alternative if adding
 permanent physician capacity is not feasible. By concentrating additional physicians
