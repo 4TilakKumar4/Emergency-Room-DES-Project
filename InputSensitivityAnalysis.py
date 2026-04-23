@@ -124,30 +124,51 @@ def analysisA(hourlyCounts: np.ndarray) -> pd.DataFrame:
 
 
 def plotA(resultsA: pd.DataFrame) -> None:
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
     fig.suptitle("Analysis A — CI Half-Width vs Days of Arrival Data",
-                 fontsize=13, fontweight="bold")
+                 fontsize=14, fontweight="bold", y=1.02)
 
-    for ax, col, label, color in [
-        (ax1, "doctorWait_hw", "Doctor Wait CI Half-Width (min)", "#e74c3c"),
-        (ax2, "LOS_hw",        "LOS CI Half-Width (min)",         "#3498db"),
+    for ax, col, title, ylabel, color in [
+        (ax1, "doctorWait_hw", "Doctor Wait", "CI Half-Width (min)", "#e74c3c"),
+        (ax2, "LOS_hw",        "Length of Stay", "CI Half-Width (min)", "#3498db"),
     ]:
         ax.plot(resultsA["nDays"], resultsA[col], "o-", color=color,
-                linewidth=2, markersize=8)
-        ax.set_xlabel("Days of arrival data")
-        ax.set_ylabel(label)
-        ax.set_title(label, fontweight="bold")
-        ax.set_xticks(DATA_STEPS)
-        ax.grid(True, alpha=0.3)
+                linewidth=2.2, markersize=9, zorder=3)
 
-        # Annotate the slope between last two points as diminishing returns indicator
+        ymin = resultsA[col].min()
+        ymax = resultsA[col].max()
+        ypad = (ymax - ymin) * 0.15 if (ymax - ymin) > 0 else 1.0
+        ax.set_ylim(ymin - ypad * 2, ymax + ypad * 5)
+
+        ax.set_xlabel("Days of arrival data", fontsize=12, labelpad=8)
+        ax.set_ylabel(ylabel, fontsize=12, labelpad=8)
+        ax.set_title(title, fontsize=13, fontweight="bold", pad=10)
+        ax.set_xticks(DATA_STEPS)
+        ax.tick_params(axis="both", labelsize=11)
+        ax.grid(True, alpha=0.3, linestyle="--")
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+        for x, y in zip(resultsA["nDays"], resultsA[col]):
+            ax.annotate(f"{y:.1f}", xy=(x, y), xytext=(0, 10),
+                        textcoords="offset points", ha="center",
+                        fontsize=10, color=color, fontweight="bold")
+
         x1, x2 = resultsA["nDays"].iloc[-2], resultsA["nDays"].iloc[-1]
         y1, y2 = resultsA[col].iloc[-2], resultsA[col].iloc[-1]
         slope  = (y2 - y1) / (x2 - x1)
-        ax.annotate(f"Δ = {slope:.2f} min/day\nat 25–30 days",
-                    xy=(x2, y2), xytext=(x2 - 6, y2 + (y2 - y1) * 2),
-                    fontsize=8, color=color,
-                    arrowprops=dict(arrowstyle="->", color=color))
+        sign   = "+" if slope >= 0 else ""
+        mid_x  = (x1 + x2) / 2
+        mid_y  = (y1 + y2) / 2
+        ax.annotate(
+            f"Δ = {sign}{slope:.2f} min/day\n(25 → 30 days)",
+            xy=(mid_x, mid_y),
+            xytext=(mid_x - 4, mid_y + ypad * 3.5),
+            fontsize=10, color=color,
+            ha="center",
+            bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=color, lw=1.2, alpha=0.9),
+            arrowprops=dict(arrowstyle="->", color=color, lw=1.4),
+        )
 
     plt.tight_layout()
     _save(fig, "sens_A_data_volume.png")

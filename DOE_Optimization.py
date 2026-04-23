@@ -254,7 +254,7 @@ def runEnumeration(gpModel, activeFactors: dict) -> pd.DataFrame:
     the factorial screening is expected to show clerks are not an active factor.
     """
     nNurses_levels  = activeFactors.get("nNurses",  [2, 3, 4])
-    nDoctors_levels = activeFactors.get("nDoctors", [2, 3, 4, 5])
+    nDoctors_levels = activeFactors.get("nDoctors", [2, 3, 4])
     nClerks_fixed   = activeFactors.get("nClerks",  1)
 
     rows = []
@@ -288,7 +288,9 @@ def plotResponseSurface(enumeration: pd.DataFrame) -> None:
         j = doctors_levels.index(row["nDoctors"])
         grid[i, j] = row["mean"]
 
-    fig, ax = plt.subplots(figsize=(8, 6))
+    # Width scales with number of doctor levels (4 columns when 2-5 doctors used)
+    fig_w = max(8, len(doctors_levels) * 2)
+    fig, ax = plt.subplots(figsize=(fig_w, 6))
     im = ax.imshow(grid, aspect="auto", cmap="RdYlGn_r", origin="lower")
     plt.colorbar(im, ax=ax, label="Mean physician wait (min)")
 
@@ -556,17 +558,19 @@ def plotWhatIf(baseline: dict, wi1: pd.DataFrame,
     df  = pd.DataFrame(rows)
     clr = [COLORS[t] for t in df["tag"]]
 
-    fig, ax = plt.subplots(figsize=(12, 6))
+    # 8 bars total (baseline + 4 constant + 2-shift + util-target)
+    # 15 inches keeps labels readable without rotation
+    fig, ax = plt.subplots(figsize=(15, 6))
     bars = ax.bar(range(len(df)), df["mean"], color=clr, alpha=0.85,
                   yerr=df["hw"], capsize=5, error_kw=dict(lw=1.5))
 
     ax.axhline(baseline["mean"], color="gray", linestyle="--", linewidth=1.2,
                label=f"Baseline mean = {baseline['mean']:.0f} min")
     ax.axhline(120, color="firebrick", linestyle=":", linewidth=1.5,
-               label="120-min wait target")
+               label="120-min wait target (ED performance standard)")
 
     ax.set_xticks(range(len(df)))
-    ax.set_xticklabels(df["label"], fontsize=9)
+    ax.set_xticklabels(df["label"], fontsize=9, ha="center")
     ax.set_ylabel("Mean Physician Wait (min)")
     ax.set_title("What-If Experiments — Physician Wait Time Comparison\n"
                  "(with 95% CI error bars)", fontweight="bold")
@@ -703,7 +707,8 @@ conducted over nurses and doctors.
 ## 5.3 Phase 2 — Response Surface Enumeration
 
 With clerks fixed at 1, the full grid of (nNurses, nDoctors) combinations was
-simulated with {REPS_PER_SCENARIO} replications each using CRN. The response surface
+simulated with {REPS_PER_SCENARIO} replications each using CRN. Doctors ranged from 2 to 5
+to capture the full congestion-to-satiated regime transition. The response surface
 heatmap (Figure response_surface.png) shows mean physician wait for every
 combination. Lower values are better.
 
@@ -749,10 +754,12 @@ quickly, focusing simulation effort on the hardest comparisons.
 Three what-if experiments were designed to answer specific policy questions beyond
 the main optimisation. All use CRN pairing against the baseline for valid comparisons.
 
-**What-if 1 — Minimum constant staffing to meet a wait target.**
-Doctor count was varied from 2 to 4 with all other factors fixed at baseline.
-This identifies the minimum number of physicians needed to keep mean physician wait
-below 120 minutes — a common target in ED performance standards.
+**What-if 1 — Constant staffing across the full range (2–5 doctors).**
+Doctor count was varied from 2 to 5 with clerks and nurses fixed at baseline.
+Including 5 doctors quantifies the diminishing returns effect: the reduction in
+mean physician wait from 3→4 doctors is expected to be much larger than from
+4→5, because the system transitions out of the congestion-dominated regime
+near the 4-doctor threshold (physician utilisation drops from ~91% to ~69%).
 
 **What-if 2A — Two-shift staffing policy.**
 Rather than a constant doctor count all day, this experiment models a shift schedule
@@ -841,7 +848,7 @@ def main() -> None:
     plotFactorialEffects(effects)
 
     # Phase 2
-    activeFactors = {"nClerks": 1, "nNurses": [2, 3, 4], "nDoctors": [2, 3, 4]}
+    activeFactors = {"nClerks": 1, "nNurses": [2, 3, 4], "nDoctors": [2, 3, 4, 5]}
     enumeration = runEnumeration(gpModel, activeFactors)
     plotResponseSurface(enumeration)
 
@@ -854,7 +861,7 @@ def main() -> None:
     plotKNConvergence(knResult["history"])
 
     # What-if experiments
-    wi1  = whatIfConstant(gpModel, doctorCounts=[2, 3, 4])
+    wi1  = whatIfConstant(gpModel, doctorCounts=[2, 3, 4, 5])
     wi2a = whatIfTwoShift(gpModel)
     wi2b = whatIfUtilTarget(gpModel, utilTarget=UTIL_TARGET)
 
