@@ -19,10 +19,10 @@ performs every required output analysis task:
    10. Control variate check  — test whether arrivals can reduce variance
 
 Usage:
-    python OutputAnalysis.py --csv results/ED_rep_results.csv
-    python OutputAnalysis.py --csv results/ED_rep_results.csv --n_reps 50
+    python OutputAnalysis.py --csv Results/ED_rep_results.csv
+    python OutputAnalysis.py --csv Results/ED_rep_results.csv --n_reps 50
 
-The script creates a results/ sub-directory and saves:
+The script creates Results/output_analysis/ and saves:
     - output_stats_table.csv     : full CI table for all 19 metrics
     - mean_plot.png              : warmup detection figure
     - more_plot_primary.png      : MORE plot for triage wait
@@ -45,7 +45,7 @@ from scipy import stats
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 # Output directory
-RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
+RESULTS_DIR = os.path.join(os.path.dirname(__file__), "Results", "output_analysis")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # Column definitions
@@ -1061,7 +1061,7 @@ def main():
     parser.add_argument(
         "--csv",
         default=os.path.join(os.path.dirname(__file__),
-                             "results", "ED_rep_results.csv"),
+                             "Results", "ED_rep_results.csv"),
         help="Path to the per-replication CSV from ED_Simulation.py"
     )
     parser.add_argument(
