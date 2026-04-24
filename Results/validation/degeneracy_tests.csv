@@ -1,0 +1,5 @@
+test,verdict,detail
+Monotonicity,PASS,wait strictly decreasing: True
+Empty system,PASS,phys_wait_hi=0.00 min  util_hi=0.36%
+Overload,FAIL,ratio=1.13×  baseline=218.5  overload=246.5
+Priority collapse,PASS,high_increased=True  low_decreased=True
