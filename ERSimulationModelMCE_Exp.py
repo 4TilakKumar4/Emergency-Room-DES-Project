@@ -12,28 +12,22 @@ from sim_engine.ArrivalRateGP import ArrivalRateGP
 from sim_engine.analysis_utils import ci as ci95   # single source of truth for CI calculation
 
 
-# ---------------------------------------------------------------------------
 # File paths
-# ---------------------------------------------------------------------------
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 SOURCE_FILE = os.path.join(BASE_DIR, "Sources", "er_5000_patients.csv")
 PARAMS_FILE = os.path.join(BASE_DIR, "Sources", "simrng_parameters.csv")
 RESULTS_DIR = os.path.join(BASE_DIR, "Results", "simulation", "mce_experimental")
 
 
-# ---------------------------------------------------------------------------
 # Simulation run parameters
-# ---------------------------------------------------------------------------
 NUM_REPS   = 100
 WARMUP_MIN = 480.0
 RUN_MIN    = 1440.0
 
 
-# ---------------------------------------------------------------------------
 # System configuration
 # Registration and triage shared
 # Doctors dedicated by severity
-# ---------------------------------------------------------------------------
 N_CLERKS  = 1
 N_NURSES  = 2
 
@@ -46,9 +40,7 @@ N_DOCTORS = N_DOCTORS_HIGH + N_DOCTORS_MEDIUM + N_DOCTORS_LOW
 DOCTOR_SCHEDULE = []
 
 
-# ---------------------------------------------------------------------------
 # Random number streams
-# ---------------------------------------------------------------------------
 STREAM_ARRIVAL      = 1
 STREAM_SEVERITY     = 2
 STREAM_REG          = 3
@@ -58,9 +50,7 @@ STREAM_MCE_ARRIVAL  = 6
 STREAM_MCE_SEVERITY = 7
 
 
-# ---------------------------------------------------------------------------
 # Severity setup
-# ---------------------------------------------------------------------------
 SEVERITIES = ["low", "medium", "high"]
 PRIORITY   = {"high": 0, "medium": 1, "low": 2}
 
@@ -71,25 +61,19 @@ SEV_LABELS = {1: "low", 2: "medium", 3: "high"}
 MCE_SEV_PROBS = [0.10, 0.30, 1.00]
 
 
-# ---------------------------------------------------------------------------
 # MCE parameters
-# ---------------------------------------------------------------------------
 MCE_START_MIN = 1080.0
 MCE_DURATION  = 180.0
 MCE_PEAK_RATE = 20.0
 MCE_DECAY     = math.log(MCE_PEAK_RATE) / MCE_DURATION
 
 
-# ---------------------------------------------------------------------------
 # Plot colors
-# ---------------------------------------------------------------------------
 SEV_COLORS = {"low": "#27ae60", "medium": "#f39c12", "high": "#e74c3c"}
 METRIC_COLORS = ["#3498db", "#e74c3c", "#27ae60", "#f39c12"]
 
 
-# ---------------------------------------------------------------------------
 # Validation targets
-# ---------------------------------------------------------------------------
 VALIDATION = {
     "regWait":    4.67,
     "triageWait": 0.01,
@@ -98,16 +82,12 @@ VALIDATION = {
 }
 
 
-# ---------------------------------------------------------------------------
 # Module-level state
-# ---------------------------------------------------------------------------
 _currentRateFn = None
 theParams = {}
 
 
-# ===========================================================================
 # Helper functions
-# ===========================================================================
 
 def ensureResultsDir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
@@ -183,9 +163,7 @@ def drawService(params: dict, stage: str, severity: str, stream: int) -> float:
     return SimRNG.Expon(entry[1], stream)
 
 
-# ===========================================================================
 # Arrival logic
-# ===========================================================================
 
 def nextInterarrival() -> float:
     tHours = (SimClasses.Clock % 1440) / 60
@@ -207,9 +185,7 @@ def assignMceSeverity() -> str:
     return SEV_LABELS[SimRNG.Random_integer(MCE_SEV_PROBS, STREAM_MCE_SEVERITY)]
 
 
-# ===========================================================================
 # Priority queue
-# ===========================================================================
 
 class PriorityQueue:
     """
@@ -239,9 +215,7 @@ class PriorityQueue:
         return self.WIP.Mean()
 
 
-# ===========================================================================
 # Patient entity
-# ===========================================================================
 
 class Patient(SimClasses.Entity):
     def __init__(self, severity: str, isMce: bool = False):
@@ -255,9 +229,7 @@ class Patient(SimClasses.Entity):
         self.doc_start    = 0.0
 
 
-# ===========================================================================
 # Simulation objects
-# ===========================================================================
 
 zSimRNG = SimRNG.InitializeRNSeed()
 
@@ -326,9 +298,7 @@ theResources = [
 ]
 
 
-# ===========================================================================
 # Doctor routing helpers
-# ===========================================================================
 
 def getDoctorQueue(severity: str):
     if severity == "high":
@@ -346,9 +316,7 @@ def getDoctorResource(severity: str):
     return doctorLow
 
 
-# ===========================================================================
 # Event handlers: normal arrivals
-# ===========================================================================
 
 def arrival() -> None:
     SimFunctions.Schedule(calendar, "arrival", nextInterarrival())
@@ -471,9 +439,7 @@ def endDoctor(ev) -> None:
         startDoctor(p.severity)
 
 
-# ===========================================================================
 # Event handlers: MCE arrivals
-# ===========================================================================
 
 def mceArrival() -> None:
     p = Patient(assignMceSeverity(), isMce=True)
@@ -499,9 +465,7 @@ def shiftChange(ev) -> None:
     return
 
 
-# ===========================================================================
 # Utility helpers
-# ===========================================================================
 
 def clearQueueStats() -> None:
     for q in [triageQueue, doctorQueueHigh, doctorQueueMed, doctorQueueLow]:
@@ -512,9 +476,7 @@ def clearQueueStats() -> None:
 
 
 
-# ===========================================================================
 # Replication runner
-# ===========================================================================
 
 def runReplication(rateFn: callable) -> dict:
     global _currentRateFn
@@ -590,9 +552,7 @@ def runReplication(rateFn: callable) -> dict:
     return row
 
 
-# ===========================================================================
 # Output and plotting
-# ===========================================================================
 
 def printResults(results: pd.DataFrame, decomp: dict) -> None:
     print(f"\nMCE + DEDICATED DOCTOR RESULTS  ({NUM_REPS} replications, 95% CI)")
@@ -773,9 +733,7 @@ def plotGPPosterior(gpModel: ArrivalRateGP, hourlyCounts: np.ndarray) -> None:
     _save(fig, "MCE_EXP_gp_posterior.png")
 
 
-# ===========================================================================
 # Main
-# ===========================================================================
 
 def main() -> None:
     ensureResultsDir(RESULTS_DIR)

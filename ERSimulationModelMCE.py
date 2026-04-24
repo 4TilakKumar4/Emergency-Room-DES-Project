@@ -59,36 +59,28 @@ from collections import deque
 from sim_engine.analysis_utils import ci as ci95   # single source of truth for CI calculation
 
 
-# ---------------------------------------------------------------------------
 # File paths
-# ---------------------------------------------------------------------------
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 SOURCE_FILE = os.path.join(BASE_DIR, "Sources", "er_5000_patients.csv")
 PARAMS_FILE = os.path.join(BASE_DIR, "Sources", "simrng_parameters.csv")
 RESULTS_DIR = os.path.join(BASE_DIR, "Results", "simulation", "mce")
 
-# ---------------------------------------------------------------------------
 # Simulation run parameters  (identical to baseline)
-# ---------------------------------------------------------------------------
 NUM_REPS   = 100
 WARMUP_MIN = 480.0    # 8-hour warmup  (midnight → 8 AM)
 RUN_MIN    = 1440.0   # 24-hour steady-state run
 
-# ---------------------------------------------------------------------------
 # System configuration  — 6 doctors for MCE surge scenario
-# ---------------------------------------------------------------------------
 N_CLERKS  = 1
 N_NURSES  = 2
 N_DOCTORS = 3    # increased from baseline 3
 
 DOCTOR_SCHEDULE = []    # no mid-run shift changes in this scenario
 
-# ---------------------------------------------------------------------------
 # Random number streams
 # Streams 1-5 are identical to the baseline so GP-sampled arrival sequences
 # and service times are comparable across the two models.
 # Streams 6-7 are exclusive to the MCE process — full independence guaranteed.
-# ---------------------------------------------------------------------------
 STREAM_ARRIVAL      = 1
 STREAM_SEVERITY     = 2
 STREAM_REG          = 3
@@ -97,9 +89,7 @@ STREAM_DOCTOR       = 5
 STREAM_MCE_ARRIVAL  = 6   # MCE inter-arrival draws
 STREAM_MCE_SEVERITY = 7   # MCE severity assignment draws
 
-# ---------------------------------------------------------------------------
 # Severity levels and priority map
-# ---------------------------------------------------------------------------
 SEVERITIES = ["low", "medium", "high"]
 PRIORITY   = {"high": 0, "medium": 1, "low": 2}
 
@@ -112,9 +102,7 @@ SEV_LABELS = {1: "low", 2: "medium", 3: "high"}
 # Reflects trauma/rescue scenario: ~70% high, ~20% medium, ~10% low
 MCE_SEV_PROBS = [0.10, 0.30, 1.00]
 
-# ---------------------------------------------------------------------------
 # Mass Casualty Event parameters
-# ---------------------------------------------------------------------------
 MCE_START_MIN  = 1080.0               # 18:00 (6 PM) — minutes from midnight
 MCE_DURATION   = 180.0                # 3-hour rescue window
 MCE_PEAK_RATE  = 20.0                 # patients/hr at event onset
@@ -125,21 +113,15 @@ MCE_DECAY      = math.log(MCE_PEAK_RATE) / MCE_DURATION
 # At t=120 min: rate ≈  3.2 pts/hr
 # At t=180 min: rate ≈  1.0 pts/hr  (event effectively over)
 
-# ---------------------------------------------------------------------------
 # Plot colours
-# ---------------------------------------------------------------------------
 SEV_COLORS    = {"low": "#27ae60", "medium": "#f39c12", "high": "#e74c3c"}
 METRIC_COLORS = ["#3498db", "#e74c3c", "#27ae60", "#f39c12"]
 
-# ---------------------------------------------------------------------------
 # Module-level state
-# ---------------------------------------------------------------------------
 _currentRateFn = None   # GP-sampled rate function, set per replication
 
 
-# ===========================================================================
 # Helper utilities
-# ===========================================================================
 
 def ensureResultsDir(path: str) -> None:
     """Create the results directory if it does not already exist."""
@@ -219,9 +201,7 @@ def drawService(params: dict, stage: str, severity: str, stream: int) -> float:
     return SimRNG.Expon(entry[1], stream)
 
 
-# ===========================================================================
 # Arrival rate functions
-# ===========================================================================
 
 def nextInterarrival() -> float:
     """
@@ -277,9 +257,7 @@ def buildGP() -> "ArrivalRateGP":
     return gp
 
 
-# ===========================================================================
 # Priority queue
-# ===========================================================================
 
 class PriorityQueue:
     """
@@ -314,9 +292,7 @@ class PriorityQueue:
         return self.WIP.Mean()
 
 
-# ===========================================================================
 # Patient entity
-# ===========================================================================
 
 class Patient(SimClasses.Entity):
     """
@@ -336,9 +312,7 @@ class Patient(SimClasses.Entity):
         self.doc_start    = 0.0
 
 
-# ===========================================================================
 # Simulation objects  (module-level, reset each replication)
-# ===========================================================================
 
 zSimRNG = SimRNG.InitializeRNSeed()
 
@@ -392,9 +366,7 @@ theResources = [clerk, nurses, doctors]
 theParams = {}
 
 
-# ===========================================================================
 # Event handlers — normal patient stream (identical logic to baseline)
-# ===========================================================================
 
 def arrival() -> None:
     """Schedule next normal arrival; create patient and enter registration queue."""
@@ -481,9 +453,7 @@ def endDoctor(ev) -> None:
         startDoctor()
 
 
-# ===========================================================================
 # Event handlers — MCE casualty stream
-# ===========================================================================
 
 def mceArrival() -> None:
     """
@@ -527,9 +497,7 @@ def shiftChange(ev) -> None:
         startDoctor()
 
 
-# ===========================================================================
 # Replication runner
-# ===========================================================================
 
 def runReplication(rateFn: callable) -> dict:
     """
@@ -603,9 +571,7 @@ def runReplication(rateFn: callable) -> dict:
     return row
 
 
-# ===========================================================================
 # Output utilities
-# ===========================================================================
 
 def printResults(results: pd.DataFrame, decomp: dict) -> None:
     print(f"\nMCE SCENARIO RESULTS  ({NUM_REPS} replications, 95% CI)")
@@ -775,9 +741,7 @@ def plotGPPosterior(gpModel: ArrivalRateGP, hourlyCounts: np.ndarray) -> None:
     _save(fig, "MCE_gp_posterior.png")
 
 
-# ===========================================================================
 # Entry point
-# ===========================================================================
 
 def main() -> None:
     ensureResultsDir(RESULTS_DIR)

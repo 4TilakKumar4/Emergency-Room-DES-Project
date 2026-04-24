@@ -43,17 +43,13 @@ from scipy import stats
 from sim_engine.analysis_utils import ci
 
 
-# ---------------------------------------------------------------------------
 # Paths
-# ---------------------------------------------------------------------------
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 INPUT_FILE = os.path.join(BASE_DIR, "Results", "simulation", "gp_severity",
                           "ED_rep_results.csv")
 OUTPUT_DIR = os.path.join(BASE_DIR, "Results", "output_analysis")
 
-# ---------------------------------------------------------------------------
 # Empirical validation targets (from er_5000_patients.csv)
-# ---------------------------------------------------------------------------
 VALIDATION = {
     "regWait":    4.67,
     "triageWait": 0.01,
@@ -73,9 +69,7 @@ C_ORANGE = "#f39c12"
 C_DARK   = "#2c3e50"
 
 
-# ---------------------------------------------------------------------------
 # Utilities
-# ---------------------------------------------------------------------------
 
 def ensureDir() -> None:
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -115,9 +109,7 @@ def _quantileCI(series: pd.Series, q: float,
     return point, float(sorted_v[lo_i]), float(sorted_v[hi_i])
 
 
-# ---------------------------------------------------------------------------
 # 1. CI CONVERGENCE  (measure of error)
-# ---------------------------------------------------------------------------
 
 def ciConvergence(results: pd.DataFrame) -> pd.DataFrame:
     """
@@ -189,9 +181,7 @@ def plotCIConvergence(conv: pd.DataFrame) -> None:
     _save(fig, "ci_convergence.png")
 
 
-# ---------------------------------------------------------------------------
 # 2. VALIDATION RELATIVE ERROR  (measure of error)
-# ---------------------------------------------------------------------------
 
 def validationError(results: pd.DataFrame) -> pd.DataFrame:
     """
@@ -239,9 +229,7 @@ def printValidationTable(vdf: pd.DataFrame) -> None:
         )
 
 
-# ---------------------------------------------------------------------------
 # 3. RISK MEASURES — tail probabilities and quantile estimates
-# ---------------------------------------------------------------------------
 
 def riskMeasures(results: pd.DataFrame) -> dict:
     """
@@ -339,9 +327,7 @@ def plotRiskMeasures(results: pd.DataFrame, risk: dict) -> None:
     _save(fig, "risk_measures.png")
 
 
-# ---------------------------------------------------------------------------
 # 4. MORE PLOTS  (Nelson & Pei, 2021, §7.1.2)
-# ---------------------------------------------------------------------------
 
 def plotMORE(results: pd.DataFrame) -> None:
     """
@@ -457,9 +443,7 @@ def plotMORE(results: pd.DataFrame) -> None:
     _save(fig, "more_plots.png")
 
 
-# ---------------------------------------------------------------------------
 # 5. SUMMARY CSV
-# ---------------------------------------------------------------------------
 
 def saveSummaryCSV(vdf: pd.DataFrame, risk: dict, conv: pd.DataFrame) -> None:
     rows = []
@@ -512,9 +496,7 @@ def saveSummaryCSV(vdf: pd.DataFrame, risk: dict, conv: pd.DataFrame) -> None:
     print(f"  Saved → {path}")
 
 
-# ---------------------------------------------------------------------------
 # MAIN
-# ---------------------------------------------------------------------------
 
 def main() -> None:
     ensureDir()
