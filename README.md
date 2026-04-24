@@ -10,12 +10,11 @@ Authors: Tathya Malav Kamdar, Tilak Kumar Byradenahalli Ramesh, Uriel Baron
 
 This project implements a complete discrete-event simulation (DES) pipeline for an Emergency Department (ED) using a custom Python simulation engine. The model covers patient arrivals, triage, physician consultation, resource allocation, and length of stay, with a full input modelling, validation, sensitivity analysis, design of experiments, and stress-testing framework.
 
-The simulation is built as six progressive configurations. The first three represent the core model at increasing levels of fidelity. The remaining three are experimental or stress-test variants used to explore alternative configurations and edge-case system behaviour.
+The simulation is built as five progressive configurations. The first two represent the core model at increasing levels of fidelity. The remaining three are experimental or stress-test variants used to explore alternative configurations and edge-case system behaviour.
 
 | Configuration | File | Description |
 |---|---|---|
 | Baseline NHPP | `ERSimulationModelNHPP.py` | Fixed hourly arrival rates from data |
-| GP Arrival Model | `ERSimulationModelGP.py` | GP posterior samples per replication, pooled output |
 | GP + Severity *(production)* | `ERSimulationModelGPwithSev.py` | GP rates + per-severity statistics — primary model |
 | GP + Severity Experimental | `ERSimulationModelGPwithSev_Exp.py` | Experimental configuration: exponential service times instead of KS-fitted distributions — used to test whether distribution family choice affects conclusions |
 | MCE Stress Test | `ERSimulationModelMCE.py` | Mass Casualty Event scenario — superimposed exponential-decay surge arrival stream with 70% high-severity patients and 6-doctor surge staffing |
@@ -32,29 +31,33 @@ Emergency-Room-DES-Project/
 │
 ├── sim_engine/                          # Custom DES framework (not SimPy/Arena)
 │   ├── __init__.py
+│   ├── analysis_utils.py                # Shared CI utility — single source of truth
+│   ├── ArrivalRateGP.py                 # GP arrival rate model (fit, sample, decompose)
 │   ├── SimClasses.py                    # Core primitives: EventCalendar, DTStat, CTStat,
 │   │                                    #   Resource, FIFOQueue
 │   ├── SimFunctions.py                  # Schedule, SchedulePlus, ClearStats, SimFunctionsInit
-│   ├── SimRNG.py                        # Random variate generation (100 independent streams)
-│   └── ArrivalRateGP.py                 # GP arrival rate model (fit, sample, decompose)
+│   └── SimRNG.py                        # Random variate generation (100 independent streams)
 │
 ├── Sources/                             # Input data — not tracked by git
 │   ├── er_5000_patients.csv             # 5,000 patient records over 30 days
 │   └── simrng_parameters.csv           # Fitted distribution parameters (output of Fitting_Dist_Tat.py)
 │
 ├── Results/                             # All outputs — auto-created, not tracked by git
-│   ├── simulation/
-│   │   ├── nhpp/                        # ERSimulationModelNHPP.py outputs
-│   │   ├── gp/                          # ERSimulationModelGP.py outputs
-│   │   ├── gp_severity/                 # ERSimulationModelGPwithSev.py outputs
-│   │   ├── gp_severity_experimental/    # ERSimulationModelGPwithSev_Exp.py outputs
-│   │   ├── mce/                         # ERSimulationModelMCE.py outputs
-│   │   └── mce_experimental/            # ERSimulationModelMCE_Exp.py outputs
 │   ├── DOE/                             # DOE_Optimization.py outputs
-│   └── sensitivity_analysis/            # InputSensitivityAnalysis.py outputs
+│   ├── input_modeling/                  # Fitting_Dist_Tat.py plots and diagnostics
+│   ├── output_analysis/                 # OutputAnalysis.py plots
+│   ├── simulation/                      # Per-configuration simulation outputs
+│   │   ├── nhpp/                        # ERSimulationModelNHPP.py
+│   │   ├── gp_severity/                 # ERSimulationModelGPwithSev.py  ← baseline
+│   │   ├── gp_severity_experimental/    # ERSimulationModelGPwithSev_Exp.py
+│   │   ├── mce/                         # ERSimulationModelMCE.py
+│   │   └── mce_experimental/            # ERSimulationModelMCE_Exp.py
+│   ├── validation/                      # JacksonValidation.py and DegeneracyTests.py outputs
+│   ├── ED_rep_results.csv               # Latest baseline replication results (100 reps)
+│   ├── sensitivity_summary.csv          # Summary table from InputSensitivityAnalysis.py
+│   └── simrng_parameters.csv           # Copy of fitted parameters used in last run
 │
 ├── ERSimulationModelNHPP.py
-├── ERSimulationModelGP.py
 ├── ERSimulationModelGPwithSev.py
 ├── ERSimulationModelGPwithSev_Exp.py
 ├── ERSimulationModelMCE.py
@@ -63,7 +66,10 @@ Emergency-Room-DES-Project/
 ├── Fitting_Dist_Tat.py                  # Distribution fitting pipeline
 ├── InputSensitivityAnalysis.py          # Four sensitivity analyses (A–D)
 ├── DOE_Optimization.py                  # Factorial screening, Kim-Nelson R&S, what-if experiments
-├── analysis_utils.py                    # Shared CI utility (single source of truth)
+├── OutputAnalysis.py                    # CI convergence, risk measures, LOS histograms
+├── JacksonValidation.py                 # Analytical validation against Erlang-C predictions
+├── DegeneracyTests.py                   # Structural validation: monotonicity, empty system,
+│                                        #   overload, and priority collapse tests
 │
 ├── README.md
 ├── TECHNICAL_WRITEUP.md
@@ -293,14 +299,15 @@ Three what-if experiments compare staffing policies: constant headcount threshol
 
 ## Project Structure Notes
 
-The `sim_engine/` package contains all simulation framework code. Import pattern in model files:
+The `sim_engine/` package contains all simulation framework code and the shared statistical utility. Import pattern in model files:
 
 ```python
 from sim_engine import SimClasses, SimFunctions, SimRNG
 from sim_engine.ArrivalRateGP import ArrivalRateGP
+from sim_engine.analysis_utils import ci as ci95
 ```
 
-`analysis_utils.py` provides a single `ci(series, alpha)` function using `scipy.stats.t.ppf` — the correct t-distribution CI for finite replication counts. All model and analysis files import from here rather than defining their own CI functions.
+`sim_engine/analysis_utils.py` provides a single `ci(series, alpha)` function using `scipy.stats.t.ppf` — the correct t-distribution CI for finite replication counts. All model and analysis files import from here rather than defining their own CI functions. Keeping it inside `sim_engine/` means it is versioned alongside the framework it supports and is available to any script that already imports the package.
 
 `SimFunctions.py` uses a relative import (`from . import SimClasses`) because both files are in the same package.
 
