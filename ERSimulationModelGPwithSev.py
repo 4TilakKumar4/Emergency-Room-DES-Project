@@ -34,10 +34,12 @@ import math
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from collections import deque
 from sim_engine import SimFunctions
 from sim_engine import SimRNG
 from sim_engine import SimClasses
 from sim_engine.ArrivalRateGP import ArrivalRateGP
+from analysis_utils import ci as ci95   # single source of truth for CI calculation
 
 
 # File paths — edit here only if the project structure changes
@@ -219,34 +221,33 @@ def printParams(params: dict) -> None:
 
 class PriorityQueue:
     """
-    Drop-in replacement for FIFOQueue that serves patients by severity.
-    High-severity patients are inserted ahead of medium and low.
+    Priority queue for ED patients that serves by acuity (high > medium > low).
     Patients of equal severity retain FIFO order within their class.
+
+    Implementation: three deques keyed by PRIORITY value (0, 1, 2).
+    Add and Remove are both O(1) — previously the list-based implementation
+    was O(n) for both the scan and the insert, which mattered at high
+    physician-queue depths (up to 100+ patients at the 3-doctor baseline).
     """
 
     def __init__(self):
-        self.WIP       = SimClasses.CTStat()
-        self.ThisQueue = []
+        self.WIP    = SimClasses.CTStat()
+        self._lanes: dict[int, deque] = {0: deque(), 1: deque(), 2: deque()}
 
     def NumQueue(self) -> int:
-        return len(self.ThisQueue)
+        return sum(len(lane) for lane in self._lanes.values())
 
     def Add(self, patient) -> None:
-        # Walk the queue to find the first patient of lower priority and insert before it
-        pos = len(self.ThisQueue)
-        for i, p in enumerate(self.ThisQueue):
-            if PRIORITY[patient.severity] < PRIORITY[p.severity]:
-                pos = i
-                break
-        self.ThisQueue.insert(pos, patient)
-        self.WIP.Record(float(len(self.ThisQueue)))
+        self._lanes[PRIORITY[patient.severity]].append(patient)   # O(1)
+        self.WIP.Record(float(self.NumQueue()))
 
     def Remove(self):
-        if not self.ThisQueue:
-            return None
-        entity = self.ThisQueue.pop(0)
-        self.WIP.Record(float(len(self.ThisQueue)))
-        return entity
+        for key in (0, 1, 2):                    # high → medium → low
+            if self._lanes[key]:
+                entity = self._lanes[key].popleft()   # O(1)
+                self.WIP.Record(float(self.NumQueue()))
+                return entity
+        return None
 
     def Mean(self) -> float:
         return self.WIP.Mean()
@@ -456,6 +457,8 @@ def runReplication(rateFn: callable) -> dict:
         elif ev.EventType == "endTriage":        endTriage(ev)
         elif ev.EventType == "endDoctor":        endDoctor(ev)
         elif ev.EventType == "shiftChange":      shiftChange(ev)
+        else:
+            raise RuntimeError(f"Unknown event type in calendar: {ev.EventType!r}")
 
     row = {
         "regWait":    regWait.Mean(),
@@ -472,13 +475,6 @@ def runReplication(rateFn: callable) -> dict:
         row[f"doctorWait_{sev}"] = doctorWaitBySev[sev].Mean()
         row[f"LOS_{sev}"]        = losBySev[sev].Mean()
     return row
-
-
-def ci95(series: pd.Series) -> tuple[float, float]:
-    """Return (mean, half-width) of the 95% CI for a column of replication results."""
-    m  = series.mean()
-    hw = 1.96 * series.std(ddof=1) / math.sqrt(len(series))
-    return m, hw
 
 
 def printResults(results: pd.DataFrame, decomp: dict) -> None:

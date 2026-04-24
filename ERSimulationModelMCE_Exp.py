@@ -4,10 +4,12 @@ import math
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from collections import deque
 from sim_engine import SimFunctions
 from sim_engine import SimRNG
 from sim_engine import SimClasses
 from sim_engine.ArrivalRateGP import ArrivalRateGP
+from analysis_utils import ci as ci95   # single source of truth for CI calculation
 
 
 # ---------------------------------------------------------------------------
@@ -16,7 +18,7 @@ from sim_engine.ArrivalRateGP import ArrivalRateGP
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 SOURCE_FILE = os.path.join(BASE_DIR, "Sources", "er_5000_patients.csv")
 PARAMS_FILE = os.path.join(BASE_DIR, "Sources", "simrng_parameters.csv")
-RESULTS_DIR = os.path.join(BASE_DIR, "Results", "MCE_EXP_dedicated")
+RESULTS_DIR = os.path.join(BASE_DIR, "Results", "simulation", "mce_experimental")
 
 
 # ---------------------------------------------------------------------------
@@ -210,28 +212,28 @@ def assignMceSeverity() -> str:
 # ===========================================================================
 
 class PriorityQueue:
+    """
+    Priority queue serving by acuity (high > medium > low), FIFO within class.
+    Three deques — O(1) Add and Remove.
+    """
     def __init__(self):
-        self.WIP = SimClasses.CTStat()
-        self.ThisQueue = []
+        self.WIP    = SimClasses.CTStat()
+        self._lanes: dict[int, deque] = {0: deque(), 1: deque(), 2: deque()}
 
     def NumQueue(self) -> int:
-        return len(self.ThisQueue)
+        return sum(len(lane) for lane in self._lanes.values())
 
     def Add(self, patient) -> None:
-        pos = len(self.ThisQueue)
-        for i, p in enumerate(self.ThisQueue):
-            if PRIORITY[patient.severity] < PRIORITY[p.severity]:
-                pos = i
-                break
-        self.ThisQueue.insert(pos, patient)
-        self.WIP.Record(float(len(self.ThisQueue)))
+        self._lanes[PRIORITY[patient.severity]].append(patient)
+        self.WIP.Record(float(self.NumQueue()))
 
     def Remove(self):
-        if not self.ThisQueue:
-            return None
-        entity = self.ThisQueue.pop(0)
-        self.WIP.Record(float(len(self.ThisQueue)))
-        return entity
+        for key in (0, 1, 2):
+            if self._lanes[key]:
+                entity = self._lanes[key].popleft()
+                self.WIP.Record(float(self.NumQueue()))
+                return entity
+        return None
 
     def Mean(self) -> float:
         return self.WIP.Mean()
@@ -508,10 +510,6 @@ def clearQueueStats() -> None:
             q.WIP.Xlast = 0.0
 
 
-def ci95(series: pd.Series) -> tuple[float, float]:
-    m  = series.mean()
-    hw = 1.96 * series.std(ddof=1) / math.sqrt(len(series))
-    return m, hw
 
 
 # ===========================================================================
@@ -561,6 +559,8 @@ def runReplication(rateFn: callable) -> dict:
             mceStart(ev)
         elif ev.EventType == "mceArrival":
             mceArrival()
+        else:
+            raise RuntimeError(f"Unknown event type in calendar: {ev.EventType!r}")
 
     total_doc_busy = doctorHigh.Mean() + doctorMed.Mean() + doctorLow.Mean()
 
@@ -815,7 +815,7 @@ def main() -> None:
     plotMceArrivalRate()
     plotGPPosterior(gpModel, hourlyCounts)
 
-    outPath = os.path.join(RESULTS_DIR, "MCE_EXP_rep_results.csv")
+    outPath = os.path.join(RESULTS_DIR, "MCE_experimental_rep_results.csv")
     results.to_csv(outPath, index=False)
     print(f"  Saved → {outPath}")
 

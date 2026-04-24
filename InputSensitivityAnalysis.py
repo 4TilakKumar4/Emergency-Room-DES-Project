@@ -32,6 +32,8 @@ from scipy.interpolate import interp1d
 # live in ERSimulationModelGPwithSev — imported here and used directly.
 import ERSimulationModelGPwithSev as sim
 from sim_engine.ArrivalRateGP import ArrivalRateGP
+from sim_engine import SimRNG
+from analysis_utils import ci as ci95   # single source of truth; uses t-distribution
 
 
 # File paths
@@ -64,21 +66,23 @@ def runBatch(rateFn, nReps: int, params: dict | None = None) -> pd.DataFrame:
     """
     Run nReps replications, all using the same rateFn and optional params override.
     If params is provided it temporarily replaces sim.theParams for the batch.
+
+    SimRNG.ZRNG is reset before each replication so that results are
+    reproducible and CRN applies correctly when runBatch is called multiple
+    times for different scenarios (e.g. Analyses A and B).
     """
+    from sim_engine import SimRNG as _SimRNG
     originalParams = sim.theParams
     if params is not None:
         sim.theParams = params
+    rows = []
     try:
-        rows = [sim.runReplication(rateFn) for _ in range(nReps)]
+        for rep in range(nReps):
+            _SimRNG.ZRNG = _SimRNG.InitializeRNSeed()   # CRN: deterministic per rep
+            rows.append(sim.runReplication(rateFn))
     finally:
         sim.theParams = originalParams
     return pd.DataFrame(rows)
-
-
-def ci95(series: pd.Series) -> tuple[float, float]:
-    m  = series.mean()
-    hw = 1.96 * series.std(ddof=1) / math.sqrt(len(series))
-    return m, hw
 
 
 # Analysis A — Data Volume Sensitivity

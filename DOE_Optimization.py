@@ -56,6 +56,7 @@ from scipy import stats
 
 import ERSimulationModelGPwithSev as sim
 from sim_engine import SimRNG
+from analysis_utils import ci as ciMean   # single source of truth for CI calculation
 
 
 # Output directory for all DOE results
@@ -146,16 +147,6 @@ def runScenario(
         rows.append(sim.runReplication(rateFn))
 
     return pd.DataFrame(rows)
-
-
-def ciMean(series: pd.Series, alpha: float = 0.05) -> tuple[float, float]:
-    """Return (mean, half-width) of the (1-alpha) t-interval."""
-    n  = len(series)
-    m  = series.mean()
-    s  = series.std(ddof=1)
-    t  = stats.t.ppf(1 - alpha / 2, df=n - 1)
-    hw = t * s / math.sqrt(n)
-    return m, hw
 
 
 def pairedCI(a: pd.Series, b: pd.Series, alpha: float = 0.05) -> tuple[float, float]:
@@ -375,11 +366,11 @@ def kimNelson(candidates: list, gpModel) -> dict:
         r += 1
         for i in active:
             nc, nn, nd = candidates[i]
-            SimRNG.ZRNG = SimRNG.InitializeRNSeed()
-            rateFn = gpModel.sampleRateCurve(randomState=r)
-            row = sim.runReplication(rateFn)
 
-            # Patch resources to match this candidate before each replication
+            # Patch staffing BEFORE running so the replication uses the correct
+            # resource counts.  Previous code patched after the first run, which
+            # (a) ran with the wrong config and (b) discarded the result, wasting
+            # two replications' worth of compute per candidate per iteration.
             sim.N_CLERKS = nc; sim.N_NURSES = nn; sim.N_DOCTORS = nd
             sim.clerk.SetUnits(nc); sim.nurses.SetUnits(nn); sim.doctors.SetUnits(nd)
             sim.DOCTOR_SCHEDULE = []

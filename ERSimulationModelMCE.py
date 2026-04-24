@@ -14,7 +14,7 @@ for MCE vs. normal patients within each replication.
 
 Scenario parameters vs. baseline (ERSimulationModelGPwithSev.py):
   N_DOCTORS        : 3  →  6   (surge staffing)
-  RESULTS_DIR      : Results/  →  Results/MCE/
+  RESULTS_DIR      : Results/  →  Results/simulation/mce/
   MCE_START_MIN    : 1080.0    (18:00 = 6 PM)
   MCE_DURATION     : 180.0     (3 hours)
   MCE_PEAK_RATE    : 20.0      (patients/hr at event onset)
@@ -29,11 +29,11 @@ Outputs (100 replications, 95% CI):
   - Mean length of stay       (all patients, MCE-only, normal-only)
   - Resource utilisation per resource type
   - Variance decomposition: input uncertainty vs simulation noise
-  - Results/MCE/MCE_output_analysis.png
-  - Results/MCE/MCE_utilisation.png
-  - Results/MCE/MCE_gp_posterior.png
-  - Results/MCE/MCE_arrival_rate.png
-  - Results/MCE/MCE_rep_results.csv
+  - Results/simulation/mce/MCE_output_analysis.png
+  - Results/simulation/mce/MCE_utilisation.png
+  - Results/simulation/mce/MCE_gp_posterior.png
+  - Results/simulation/mce/MCE_arrival_rate.png
+  - Results/simulation/mce/MCE_rep_results.csv
 
 Reference:
   Hirshberg A, Holcomb JB, Mattox KL (2001). Hospital trauma care in
@@ -42,7 +42,7 @@ Reference:
     contingency, and crisis capacity. Disaster Med Public Health Prep 3(S1).
 
 Input   : Sources/er_5000_patients.csv,  Sources/simrng_parameters.csv
-Outputs : Results/MCE/*.png,  Results/MCE/MCE_rep_results.csv
+Outputs : Results/simulation/mce/*.png,  Results/simulation/mce/MCE_rep_results.csv
 """
 
 import os
@@ -55,6 +55,8 @@ from sim_engine import SimFunctions
 from sim_engine import SimRNG
 from sim_engine import SimClasses
 from sim_engine.ArrivalRateGP import ArrivalRateGP
+from collections import deque
+from analysis_utils import ci as ci95   # single source of truth for CI calculation
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +65,7 @@ from sim_engine.ArrivalRateGP import ArrivalRateGP
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 SOURCE_FILE = os.path.join(BASE_DIR, "Sources", "er_5000_patients.csv")
 PARAMS_FILE = os.path.join(BASE_DIR, "Sources", "simrng_parameters.csv")
-RESULTS_DIR = os.path.join(BASE_DIR, "Results", "MCE")
+RESULTS_DIR = os.path.join(BASE_DIR, "Results", "simulation", "mce")
 
 # ---------------------------------------------------------------------------
 # Simulation run parameters  (identical to baseline)
@@ -281,32 +283,32 @@ def buildGP() -> "ArrivalRateGP":
 
 class PriorityQueue:
     """
-    Serves patients by severity. High-severity patients are inserted ahead of
-    medium and low. Patients of equal severity retain FIFO order.
+    Priority queue for ED patients that serves by acuity (high > medium > low).
+    Patients of equal severity retain FIFO order within their class.
+
+    Implementation: three deques keyed by PRIORITY value (0, 1, 2).
+    Add and Remove are both O(1) — the previous list-based implementation
+    was O(n) for both the scan and the insert.
     """
 
     def __init__(self):
-        self.WIP       = SimClasses.CTStat()
-        self.ThisQueue = []
+        self.WIP    = SimClasses.CTStat()
+        self._lanes: dict[int, deque] = {0: deque(), 1: deque(), 2: deque()}
 
     def NumQueue(self) -> int:
-        return len(self.ThisQueue)
+        return sum(len(lane) for lane in self._lanes.values())
 
     def Add(self, patient) -> None:
-        pos = len(self.ThisQueue)
-        for i, p in enumerate(self.ThisQueue):
-            if PRIORITY[patient.severity] < PRIORITY[p.severity]:
-                pos = i
-                break
-        self.ThisQueue.insert(pos, patient)
-        self.WIP.Record(float(len(self.ThisQueue)))
+        self._lanes[PRIORITY[patient.severity]].append(patient)   # O(1)
+        self.WIP.Record(float(self.NumQueue()))
 
     def Remove(self):
-        if not self.ThisQueue:
-            return None
-        entity = self.ThisQueue.pop(0)
-        self.WIP.Record(float(len(self.ThisQueue)))
-        return entity
+        for key in (0, 1, 2):                    # high → medium → low
+            if self._lanes[key]:
+                entity = self._lanes[key].popleft()   # O(1)
+                self.WIP.Record(float(self.NumQueue()))
+                return entity
+        return None
 
     def Mean(self) -> float:
         return self.WIP.Mean()
@@ -576,6 +578,8 @@ def runReplication(rateFn: callable) -> dict:
         elif ev.EventType == "shiftChange":      shiftChange(ev)
         elif ev.EventType == "mceStart":         mceStart(ev)
         elif ev.EventType == "mceArrival":       mceArrival()
+        else:
+            raise RuntimeError(f"Unknown event type in calendar: {ev.EventType!r}")
 
     row = {
         "regWait":          regWait.Mean(),
@@ -602,13 +606,6 @@ def runReplication(rateFn: callable) -> dict:
 # ===========================================================================
 # Output utilities
 # ===========================================================================
-
-def ci95(series: pd.Series) -> tuple[float, float]:
-    """Return (mean, half-width) of the 95% CI for a column of replication results."""
-    m  = series.mean()
-    hw = 1.96 * series.std(ddof=1) / math.sqrt(len(series))
-    return m, hw
-
 
 def printResults(results: pd.DataFrame, decomp: dict) -> None:
     print(f"\nMCE SCENARIO RESULTS  ({NUM_REPS} replications, 95% CI)")
