@@ -9,7 +9,7 @@ from sim_engine import SimFunctions
 from sim_engine import SimRNG
 from sim_engine import SimClasses
 from sim_engine.ArrivalRateGP import ArrivalRateGP
-from analysis_utils import ci as ci95   # single source of truth for CI calculation
+from sim_engine.analysis_utils import ci as ci95   # single source of truth for CI calculation
 
 
 # ---------------------------------------------------------------------------

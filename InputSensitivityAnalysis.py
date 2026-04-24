@@ -33,7 +33,7 @@ from scipy.interpolate import interp1d
 import ERSimulationModelGPwithSev as sim
 from sim_engine.ArrivalRateGP import ArrivalRateGP
 from sim_engine import SimRNG
-from analysis_utils import ci as ci95   # single source of truth; uses t-distribution
+from sim_engine.analysis_utils import ci as ci95    # single source of truth; uses t-distribution
 
 
 # File paths

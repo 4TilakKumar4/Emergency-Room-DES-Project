@@ -1,0 +1,25 @@
+Section,Metric,Value,HalfWidth,RE_pct,Note
+Validation,Registration Wait,3.92,0.5,12.75,"Empirical=4.67, RelErr=16.08%, WithinCI=False"
+Validation,Triage Wait,0.56,0.13,23.15,"Empirical=0.01, RelErr=5471.41%, WithinCI=False"
+Validation,Doctor Wait,247.67,14.09,5.69,"Empirical=249.67, RelErr=0.8%, WithinCI=True"
+Validation,Length of Stay,283.47,14.54,5.13,"Empirical=285.63, RelErr=0.76%, WithinCI=True"
+Convergence,doctorWait_RE_at_n100,5.69,,,Relative half-width (%) at n=100
+Convergence,LOS_RE_at_n100,5.13,,,Relative half-width (%) at n=100
+Risk,P(doctorWait>30),1.0,,,
+Risk,P(doctorWait>60),1.0,,,
+Risk,P(doctorWait>120),0.99,,,
+Risk,P(doctorWait>180),0.85,,,
+Risk,P(doctorWait>240),0.53,,,
+Risk,P(LOS>120),0.99,,,
+Risk,P(LOS>180),0.93,,,
+Risk,P(LOS>240),0.7,,,
+Risk,P(LOS>300),0.38,,,
+Risk,P(LOS>360),0.17,,,
+Quantile,dw_q50,242.97,,,"CI=[223.0, 260.2]"
+Quantile,dw_q75,294.07,,,"CI=[272.5, 327.2]"
+Quantile,dw_q90,346.37,,,"CI=[327.2, 386.9]"
+Quantile,dw_q95,367.44,,,"CI=[350.5, 417.5]"
+Quantile,los_q50,278.72,,,"CI=[257.9, 297.7]"
+Quantile,los_q75,331.67,,,"CI=[309.2, 364.1]"
+Quantile,los_q90,389.12,,,"CI=[364.1, 427.0]"
+Quantile,los_q95,410.34,,,"CI=[389.8, 457.0]"

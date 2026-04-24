@@ -56,7 +56,7 @@ from scipy import stats
 
 import ERSimulationModelGPwithSev as sim
 from sim_engine import SimRNG
-from analysis_utils import ci as ciMean   # single source of truth for CI calculation
+from sim_engine.analysis_utils import ci as ciMean   # single source of truth for CI calculation
 
 
 # Output directory for all DOE results

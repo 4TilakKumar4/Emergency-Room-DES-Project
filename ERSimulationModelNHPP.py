@@ -35,7 +35,7 @@ from collections import deque
 from sim_engine import SimFunctions
 from sim_engine   import SimRNG
 from sim_engine import SimClasses
-from analysis_utils import ci as ci95   # single source of truth for CI calculation
+from sim_engine.analysis_utils import ci as ci95   # single source of truth for CI calculation
 
 # File paths — edit here only if the project structure changes
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
