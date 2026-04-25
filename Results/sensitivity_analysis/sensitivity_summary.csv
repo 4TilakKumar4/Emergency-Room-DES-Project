@@ -1,0 +1,7 @@
+analysis,description,value
+A,CI half-width at 30 days (doctorWait),13.734
+B,KS vs Expon mean difference (doctorWait),2.869
+C,Variance reduction from pinning peak hours (%),-18.0
+D,Arrival rate uncertainty fraction (%),13.5
+D,Service time uncertainty fraction (%),7.0
+D,Simulation noise fraction (%),79.5

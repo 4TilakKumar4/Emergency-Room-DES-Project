@@ -1,0 +1,4 @@
+stage,servers_c,analytical,simulated,hw,ci_lower,ci_upper,error_pct,ci_contains,verdict
+registration,1,1.885,1.786,0.137,1.649,1.923,5.3,True,PASS
+triage,2,0.267,0.25,0.028,0.222,0.278,6.4,True,PASS
+doctor,3,83.454,53.763,8.385,45.378,62.148,35.6,False,FAIL

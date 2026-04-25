@@ -1,22 +1,28 @@
 """
 Emergency Room Discrete-Event Simulation
 
-System:   1 receptionist, 2 triage nurses, 3 physicians
+Modified policy:
+- Registration still shared FIFO
+- Triage still shared priority queue
+- Doctor stage now uses separate doctor resources by severity:
+    high   -> 2 doctors
+    medium -> 1 doctor
+    low    -> 1 doctor
+
 Arrivals: Non-Homogeneous Poisson Process (NHPP) with GP-modeled rates
           Rate function sampled from GP posterior each replication to
           propagate arrival rate input uncertainty into output CIs.
 Service:  Severity-specific distributions from simrng_parameters.csv
-Queues:   Registration = FIFO; Triage and Doctor = priority (high > med > low)
 
 Outputs (100 replications, 95% CI):
   - Mean wait time per stage
   - Mean length of stay
   - Resource utilisation per resource type
   - Variance decomposition: input uncertainty vs simulation noise
-  - Results/simulation/gp_severity/ED_output_analysis.png
-  - Results/simulation/gp_severity/ED_utilisation.png
-  - Results/simulation/gp_severity/ED_gp_posterior.png
-  - Results/simulation/gp_severity/ED_rep_results.csv
+  - Results/simulation/gp_severity_experimental/ED_output_analysis.png
+  - Results/simulation/gp_severity_experimental/ED_utilisation.png
+  - Results/simulation/gp_severity_experimental/ED_gp_posterior.png
+  - Results/simulation/gp_severity_experimental/ED_rep_results.csv
 
 Validation targets (empirical from er_5000_patients.csv):
   E[reg wait]    ≈   4.67 min   44.1% zero wait
@@ -25,7 +31,7 @@ Validation targets (empirical from er_5000_patients.csv):
   E[LOS]         ≈ 285.63 min
 
 Input   : Sources/er_5000_patients.csv,  Sources/simrng_parameters.csv
-Outputs : Results/simulation/gp_severity/*.png,  Results/simulation/gp_severity/ED_rep_results.csv
+Outputs : Results/simulation/gp_severity_experimental/*.png,  Results/simulation/gp_severity_experimental/ED_rep_results.csv
 """
 
 import os
@@ -39,28 +45,34 @@ from sim_engine import SimFunctions
 from sim_engine import SimRNG
 from sim_engine import SimClasses
 from sim_engine.ArrivalRateGP import ArrivalRateGP
-from sim_engine.analysis_utils import ci as ci95   # single source of truth for CI calculation
+from sim_engine.analysis_utils import ci as ci95    # single source of truth for CI calculation
 
 
 # File paths — edit here only if the project structure changes
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 SOURCE_FILE = os.path.join(BASE_DIR, "Sources", "er_5000_patients.csv")
 PARAMS_FILE = os.path.join(BASE_DIR, "Sources", "simrng_parameters.csv")
-RESULTS_DIR = os.path.join(BASE_DIR, "Results", "simulation", "gp_severity")
+RESULTS_DIR = os.path.join(BASE_DIR, "Results", "simulation", "gp_severity_experimental")
 
 # Simulation run parameters
 NUM_REPS   = 100
 WARMUP_MIN = 480.0    # 8-hour warmup
 RUN_MIN    = 1440.0   # 24-hour steady-state run
 
-# System configuration — can be patched by DOE_Optimization before each scenario
+# System configuration
 N_CLERKS  = 1
 N_NURSES  = 2
-N_DOCTORS = 3
 
-# Shift-change schedule for variable-staffing what-if experiments.
-# Each entry is (time_in_minutes, new_doctor_count).
-# Empty list means constant staffing throughout (default baseline behaviour).
+# Dedicated doctor capacities by severity
+N_DOCTORS_HIGH   = 1
+N_DOCTORS_MEDIUM = 2
+N_DOCTORS_LOW    = 2
+
+# Left here for compatibility with any code that expects a total doctor count
+N_DOCTORS = N_DOCTORS_HIGH + N_DOCTORS_MEDIUM + N_DOCTORS_LOW
+
+# Shift-change schedule retained for compatibility, but not used in this
+# dedicated-doctor version unless you extend it later.
 DOCTOR_SCHEDULE = []
 
 # Random number streams — one per independent source of randomness
@@ -116,7 +128,6 @@ def buildHourlyCounts(filepath: str) -> np.ndarray:
         .size()
         .unstack(fill_value=0)
     )
-    # Ensure all 24 hour columns are present even if some had zero arrivals
     counts = counts.reindex(columns=range(24), fill_value=0)
     return counts.values.astype(float)
 
@@ -142,6 +153,7 @@ def loadParams(filepath: str) -> dict:
         stage = stageMap.get(row["Variable"])
         if stage is None:
             continue
+
         sev  = row["Severity"]
         func = row["SimRNG_Func"]
         p1   = float(row["Param1_Value"])
@@ -170,11 +182,16 @@ def drawService(params: dict, stage: str, severity: str, stream: int) -> float:
     """Sample a service time using the fitted distribution for this stage/severity."""
     entry = params[stage][severity]
     func  = entry[0]
-    if func == "Lognormal":   return SimRNG.Lognormal(entry[1], entry[2], stream)
-    if func == "Erlang":      return SimRNG.Erlang(entry[1], entry[2], stream)
-    if func == "Expon":       return SimRNG.Expon(entry[1], stream)
-    if func == "Normal":      return max(0.0, SimRNG.Normal(entry[1], entry[2], stream))
-    if func == "Triangular":  return SimRNG.Triangular(entry[1], entry[2], entry[3], stream)
+    if func == "Lognormal":
+        return SimRNG.Lognormal(entry[1], entry[2], stream)
+    if func == "Erlang":
+        return SimRNG.Erlang(entry[1], entry[2], stream)
+    if func == "Expon":
+        return SimRNG.Expon(entry[1], stream)
+    if func == "Normal":
+        return max(0.0, SimRNG.Normal(entry[1], entry[2], stream))
+    if func == "Triangular":
+        return SimRNG.Triangular(entry[1], entry[2], entry[3], stream)
     return SimRNG.Expon(entry[1], stream)
 
 
@@ -184,7 +201,7 @@ def nextInterarrival() -> float:
     Converts clock minutes to a fractional hour, queries the callable rate
     function, then draws Expon(60/rate).
     """
-    tHours = (SimClasses.Clock % 1440) / 60   # fractional hour in [0, 24)
+    tHours = (SimClasses.Clock % 1440) / 60
     rate   = max(float(_currentRateFn(tHours)), 0.01)
     return SimRNG.Expon(60.0 / rate, STREAM_ARRIVAL)
 
@@ -196,11 +213,6 @@ def assignSeverity() -> str:
 def buildGP() -> "ArrivalRateGP":
     """
     Load arrival data, fit the GP arrival rate model, and populate theParams.
-
-    Called once by DOE_Optimization before running any scenarios so the GP
-    is not re-fitted for every staffing configuration.
-
-    Returns the fitted ArrivalRateGP instance ready for sampleRateCurve().
     """
     global theParams
     hourlyCounts = buildHourlyCounts(SOURCE_FILE)
@@ -225,9 +237,8 @@ class PriorityQueue:
     Patients of equal severity retain FIFO order within their class.
 
     Implementation: three deques keyed by PRIORITY value (0, 1, 2).
-    Add and Remove are both O(1) — previously the list-based implementation
-    was O(n) for both the scan and the insert, which mattered at high
-    physician-queue depths (up to 100+ patients at the 3-doctor baseline).
+    Add and Remove are both O(1) — the previous list-based implementation
+    was O(n) for both the scan and the insert.
     """
 
     def __init__(self):
@@ -242,7 +253,7 @@ class PriorityQueue:
         self.WIP.Record(float(self.NumQueue()))
 
     def Remove(self):
-        for key in (0, 1, 2):                    # high → medium → low
+        for key in (0, 1, 2):
             if self._lanes[key]:
                 entity = self._lanes[key].popleft()   # O(1)
                 self.WIP.Record(float(self.NumQueue()))
@@ -255,11 +266,8 @@ class PriorityQueue:
 
 class Patient(SimClasses.Entity):
     """
-    ED patient entity. Inherits CreateTime from Entity (set to Clock on init).
-    Stage timestamps are stamped as the patient moves through the system and
-    used to compute per-stage wait times at service completion.
+    ED patient entity. Inherits CreateTime from Entity.
     """
-
     def __init__(self, severity: str):
         super().__init__()
         self.severity     = severity
@@ -272,24 +280,31 @@ class Patient(SimClasses.Entity):
 
 zSimRNG = SimRNG.InitializeRNSeed()
 
-clerk   = SimClasses.Resource()
-nurses  = SimClasses.Resource()
-doctors = SimClasses.Resource()
+clerk = SimClasses.Resource()
+nurses = SimClasses.Resource()
+
+doctorHigh = SimClasses.Resource()
+doctorMed  = SimClasses.Resource()
+doctorLow  = SimClasses.Resource()
 
 clerk.SetUnits(N_CLERKS)
 nurses.SetUnits(N_NURSES)
-doctors.SetUnits(N_DOCTORS)
+doctorHigh.SetUnits(N_DOCTORS_HIGH)
+doctorMed.SetUnits(N_DOCTORS_MEDIUM)
+doctorLow.SetUnits(N_DOCTORS_LOW)
 
-regQueue    = SimClasses.FIFOQueue()
+regQueue = SimClasses.FIFOQueue()
 triageQueue = PriorityQueue()
-doctorQueue = PriorityQueue()
+
+doctorQueueHigh = SimClasses.FIFOQueue()
+doctorQueueMed  = SimClasses.FIFOQueue()
+doctorQueueLow  = SimClasses.FIFOQueue()
 
 regWait    = SimClasses.DTStat()
 triageWait = SimClasses.DTStat()
 doctorWait = SimClasses.DTStat()
 LOS        = SimClasses.DTStat()
 
-# Per-severity collectors — one DTStat per (stage, severity) combination
 regWaitBySev    = {sev: SimClasses.DTStat() for sev in SEVERITIES}
 triageWaitBySev = {sev: SimClasses.DTStat() for sev in SEVERITIES}
 doctorWaitBySev = {sev: SimClasses.DTStat() for sev in SEVERITIES}
@@ -297,22 +312,49 @@ losBySev        = {sev: SimClasses.DTStat() for sev in SEVERITIES}
 
 calendar = SimClasses.EventCalendar()
 
-theCTStats   = []
-theDTStats   = [
+theCTStats = []
+theDTStats = [
     regWait, triageWait, doctorWait, LOS,
     *regWaitBySev.values(),
     *triageWaitBySev.values(),
     *doctorWaitBySev.values(),
     *losBySev.values(),
 ]
-theQueues    = [regQueue, triageQueue, doctorQueue]
-theResources = [clerk, nurses, doctors]
+theQueues = [
+    regQueue,
+    triageQueue,
+    doctorQueueHigh,
+    doctorQueueMed,
+    doctorQueueLow,
+]
+theResources = [
+    clerk,
+    nurses,
+    doctorHigh,
+    doctorMed,
+    doctorLow,
+]
 
 theParams = {}
 
 
+def getDoctorQueue(severity: str):
+    if severity == "high":
+        return doctorQueueHigh
+    if severity == "medium":
+        return doctorQueueMed
+    return doctorQueueLow
+
+
+def getDoctorResource(severity: str):
+    if severity == "high":
+        return doctorHigh
+    if severity == "medium":
+        return doctorMed
+    return doctorLow
+
+
 def arrival() -> None:
-    # Schedule next arrival using the GP-sampled rate for the current fractional hour
     SimFunctions.Schedule(calendar, "arrival", nextInterarrival())
     p = Patient(assignSeverity())
     regQueue.Add(p)
@@ -321,22 +363,30 @@ def arrival() -> None:
 
 
 def startRegistration() -> None:
-    p           = regQueue.Remove()
+    p = regQueue.Remove()
+    if p is None:
+        return
     p.reg_start = SimClasses.Clock
     clerk.Seize(1)
-    SimFunctions.SchedulePlus(calendar, "endRegistration",
-                              drawService(theParams, "reg", p.severity, STREAM_REG), p)
+    SimFunctions.SchedulePlus(
+        calendar,
+        "endRegistration",
+        drawService(theParams, "reg", p.severity, STREAM_REG),
+        p,
+    )
 
 
 def endRegistration(ev) -> None:
-    p         = ev.WhichObject
+    p = ev.WhichObject
     p.reg_end = SimClasses.Clock
-    # Wait = time patient spent in the registration queue before the clerk was free
+
     if p.CreateTime >= WARMUP_MIN:
         regWait.Record(p.reg_start - p.CreateTime)
         regWaitBySev[p.severity].Record(p.reg_start - p.CreateTime)
+
     clerk.Free(1)
     triageQueue.Add(p)
+
     if nurses.Busy < nurses.NumberOfUnits:
         startTriage()
     if regQueue.NumQueue() > 0:
@@ -344,100 +394,111 @@ def endRegistration(ev) -> None:
 
 
 def startTriage() -> None:
-    p              = triageQueue.Remove()
+    p = triageQueue.Remove()
+    if p is None:
+        return
     p.triage_start = SimClasses.Clock
     nurses.Seize(1)
-    SimFunctions.SchedulePlus(calendar, "endTriage",
-                              drawService(theParams, "triage", p.severity, STREAM_TRIAGE), p)
+    SimFunctions.SchedulePlus(
+        calendar,
+        "endTriage",
+        drawService(theParams, "triage", p.severity, STREAM_TRIAGE),
+        p,
+    )
 
 
 def endTriage(ev) -> None:
-    p            = ev.WhichObject
+    p = ev.WhichObject
     p.triage_end = SimClasses.Clock
-    # Wait = time between leaving registration and a nurse becoming available
+
     if p.CreateTime >= WARMUP_MIN:
         triageWait.Record(p.triage_start - p.reg_end)
         triageWaitBySev[p.severity].Record(p.triage_start - p.reg_end)
+
     nurses.Free(1)
-    doctorQueue.Add(p)
-    if doctors.Busy < doctors.NumberOfUnits:
-        startDoctor()
+
+    q = getDoctorQueue(p.severity)
+    r = getDoctorResource(p.severity)
+
+    q.Add(p)
+    if r.Busy < r.NumberOfUnits:
+        startDoctor(p.severity)
+
     if triageQueue.NumQueue() > 0:
         startTriage()
 
 
-def startDoctor() -> None:
-    p           = doctorQueue.Remove()
+def startDoctor(severity: str) -> None:
+    q = getDoctorQueue(severity)
+    r = getDoctorResource(severity)
+
+    p = q.Remove()
+    if p is None:
+        return
+
     p.doc_start = SimClasses.Clock
-    doctors.Seize(1)
-    SimFunctions.SchedulePlus(calendar, "endDoctor",
-                              drawService(theParams, "doctor", p.severity, STREAM_DOCTOR), p)
+    r.Seize(1)
+
+    SimFunctions.SchedulePlus(
+        calendar,
+        "endDoctor",
+        drawService(theParams, "doctor", p.severity, STREAM_DOCTOR),
+        p,
+    )
 
 
 def endDoctor(ev) -> None:
     p = ev.WhichObject
-    # Wait = time between leaving triage and a doctor becoming available
+    q = getDoctorQueue(p.severity)
+    r = getDoctorResource(p.severity)
+
     if p.CreateTime >= WARMUP_MIN:
         doctorWait.Record(p.doc_start - p.triage_end)
         doctorWaitBySev[p.severity].Record(p.doc_start - p.triage_end)
-    # Only record LOS for patients who arrived after the warmup period
-    if p.CreateTime >= WARMUP_MIN:
+
         LOS.Record(SimClasses.Clock - p.CreateTime)
         losBySev[p.severity].Record(SimClasses.Clock - p.CreateTime)
-    doctors.Free(1)
-    if doctorQueue.NumQueue() > 0:
-        startDoctor()
+
+    r.Free(1)
+
+    if q.NumQueue() > 0:
+        startDoctor(p.severity)
 
 
 def shiftChange(ev) -> None:
     """
-    Adjust the number of doctors at a scheduled shift boundary.
-
-    The new doctor count is stored in ev.WhichObject (an integer).
-    Both the module-level N_DOCTORS constant and the Resource capacity
-    are updated so utilisation calculations remain correct.
-
-    If the new count is lower and some doctors are busy, SetUnits records
-    the new capacity — busy doctors finish their current patients before
-    the reduction takes effect, mirroring real shift hand-off behaviour.
+    Placeholder retained for compatibility.
+    In this dedicated-doctor version, doctor staffing is fixed by severity.
     """
-    global N_DOCTORS
-    newCount  = ev.WhichObject
-    N_DOCTORS = newCount
-    doctors.SetUnits(newCount)
+    return
 
-    # If capacity increased, start serving any waiting patients immediately
-    while doctors.Busy < doctors.NumberOfUnits and doctorQueue.NumQueue() > 0:
-        startDoctor()
+
+def clearQueueStats() -> None:
+    for q in [triageQueue, doctorQueueHigh, doctorQueueMed, doctorQueueLow]:
+        if hasattr(q, "WIP"):
+            q.WIP.Clear()
+            q.WIP.Xlast = 0.0
 
 
 def runReplication(rateFn: callable) -> dict:
     """
     Run one replication with the given GP-sampled rate function.
-
-    The rate function is stored in _currentRateFn so nextInterarrival() can
-    access it without changing its signature — keeping all event function
-    interfaces unchanged from the baseline model.
-
-    Shift-change events are scheduled from DOCTOR_SCHEDULE if non-empty.
-    Each entry (tMinutes, newCount) fires a shiftChange event at that absolute
-    simulation clock time, allowing mid-replication doctor count adjustment.
     """
     global _currentRateFn
     _currentRateFn = rateFn
 
+    clerk.SetUnits(N_CLERKS)
+    nurses.SetUnits(N_NURSES)
+    doctorHigh.SetUnits(N_DOCTORS_HIGH)
+    doctorMed.SetUnits(N_DOCTORS_MEDIUM)
+    doctorLow.SetUnits(N_DOCTORS_LOW)
+
     SimFunctions.SimFunctionsInit(
         calendar, theQueues, theCTStats, theDTStats, theResources
     )
-    for pq in [triageQueue, doctorQueue]:
-        pq.WIP.Clear()
-        pq.WIP.Xlast = 0.0
+    clearQueueStats()
 
     SimFunctions.Schedule(calendar, "arrival", nextInterarrival())
-
-    # Schedule all doctor shift changes for this replication
-    for tMinutes, newCount in DOCTOR_SCHEDULE:
-        SimFunctions.SchedulePlus(calendar, "shiftChange", tMinutes, newCount)
 
     warmupCleared = False
 
@@ -447,33 +508,43 @@ def runReplication(rateFn: callable) -> dict:
 
         if not warmupCleared and SimClasses.Clock >= WARMUP_MIN:
             SimFunctions.ClearStats(theCTStats, theDTStats)
-            for pq in [triageQueue, doctorQueue]:
-                pq.WIP.Clear()
-                pq.WIP.Xlast = 0.0
+            clearQueueStats()
             warmupCleared = True
 
-        if   ev.EventType == "arrival":          arrival()
-        elif ev.EventType == "endRegistration":  endRegistration(ev)
-        elif ev.EventType == "endTriage":        endTriage(ev)
-        elif ev.EventType == "endDoctor":        endDoctor(ev)
-        elif ev.EventType == "shiftChange":      shiftChange(ev)
+        if ev.EventType == "arrival":
+            arrival()
+        elif ev.EventType == "endRegistration":
+            endRegistration(ev)
+        elif ev.EventType == "endTriage":
+            endTriage(ev)
+        elif ev.EventType == "endDoctor":
+            endDoctor(ev)
+        elif ev.EventType == "shiftChange":
+            shiftChange(ev)
         else:
             raise RuntimeError(f"Unknown event type in calendar: {ev.EventType!r}")
+
+    total_doc_busy = doctorHigh.Mean() + doctorMed.Mean() + doctorLow.Mean()
 
     row = {
         "regWait":    regWait.Mean(),
         "triageWait": triageWait.Mean(),
         "doctorWait": doctorWait.Mean(),
         "LOS":        LOS.Mean(),
-        "ClerkUtil":  clerk.Mean()   / N_CLERKS,
-        "NurseUtil":  nurses.Mean()  / N_NURSES,
-        "DoctorUtil": doctors.Mean() / N_DOCTORS,
+        "ClerkUtil":  clerk.Mean() / N_CLERKS,
+        "NurseUtil":  nurses.Mean() / N_NURSES,
+        "DoctorUtil": total_doc_busy / N_DOCTORS,
+        "DoctorUtil_high":   doctorHigh.Mean() / N_DOCTORS_HIGH,
+        "DoctorUtil_medium": doctorMed.Mean() / N_DOCTORS_MEDIUM,
+        "DoctorUtil_low":    doctorLow.Mean() / N_DOCTORS_LOW,
     }
+
     for sev in SEVERITIES:
         row[f"regWait_{sev}"]    = regWaitBySev[sev].Mean()
         row[f"triageWait_{sev}"] = triageWaitBySev[sev].Mean()
         row[f"doctorWait_{sev}"] = doctorWaitBySev[sev].Mean()
         row[f"LOS_{sev}"]        = losBySev[sev].Mean()
+
     return row
 
 
@@ -481,18 +552,27 @@ def printResults(results: pd.DataFrame, decomp: dict) -> None:
     print(f"\nRESULTS SUMMARY  ({NUM_REPS} replications, 95% CI)")
 
     metrics = [
-        ("regWait",    "Reg wait        (min)"),
-        ("triageWait", "Triage wait     (min)"),
-        ("doctorWait", "Doctor wait     (min)"),
-        ("LOS",        "Length of stay  (min)"),
-        ("ClerkUtil",  "Clerk util      (%)  "),
-        ("NurseUtil",  "Nurse util      (%)  "),
-        ("DoctorUtil", "Doctor util     (%)  "),
+        ("regWait",    "Reg wait            (min)"),
+        ("triageWait", "Triage wait         (min)"),
+        ("doctorWait", "Doctor wait         (min)"),
+        ("LOS",        "Length of stay      (min)"),
+        ("ClerkUtil",  "Clerk util          (%)  "),
+        ("NurseUtil",  "Nurse util          (%)  "),
+        ("DoctorUtil", "Doctor util overall (%)  "),
     ]
     for col, label in metrics:
         m, hw = ci95(results[col])
         scale = 100 if "util" in col.lower() else 1
         print(f"  {label}: {m * scale:8.3f}  ±  {hw * scale:.3f}")
+
+    print("\n  DEDICATED DOCTOR UTILISATION (95% CI)")
+    for col, label in [
+        ("DoctorUtil_high", "High severity doctor util   (%)"),
+        ("DoctorUtil_medium", "Medium severity doctor util (%)"),
+        ("DoctorUtil_low", "Low severity doctor util    (%)"),
+    ]:
+        m, hw = ci95(results[col])
+        print(f"  {label}: {m * 100:8.3f}  ±  {hw * 100:.3f}")
 
     print(f"\n  VALIDATION TARGETS (empirical)")
     targets = [
@@ -505,16 +585,25 @@ def printResults(results: pd.DataFrame, decomp: dict) -> None:
         print(f"  {label:<16}: {val:8.2f}  {note}")
 
     print(f"\n  VARIANCE DECOMPOSITION (doctor wait)")
-    print(f"  Input uncertainty (GP arrival rates) : "
-          f"{decomp['inputVar']:8.4f}  ({decomp['inputFraction'] * 100:.1f}%)")
-    print(f"  Simulation noise                     : "
-          f"{decomp['simVar']:8.4f}  ({decomp['simFraction'] * 100:.1f}%)")
+    print(
+        f"  Input uncertainty (GP arrival rates) : "
+        f"{decomp['inputVar']:8.4f}  ({decomp['inputFraction'] * 100:.1f}%)"
+    )
+    print(
+        f"  Simulation noise                     : "
+        f"{decomp['simVar']:8.4f}  ({decomp['simFraction'] * 100:.1f}%)"
+    )
     print(f"  Total variance                       : {decomp['totalVar']:8.4f}")
-    print(f"\n  Interpretation: {decomp['inputFraction'] * 100:.0f}% of output variance "
-          f"comes from arrival rate uncertainty — "
-          + ("collecting more data would reduce CI width."
-             if decomp["inputFraction"] > 0.3
-             else "simulation noise dominates; more replications help more than more data."))
+
+    print(
+        f"\n  Interpretation: {decomp['inputFraction'] * 100:.0f}% of output variance "
+        f"comes from arrival rate uncertainty — "
+        + (
+            "collecting more data would reduce CI width."
+            if decomp["inputFraction"] > 0.3
+            else "simulation noise dominates; more replications help more than more data."
+        )
+    )
 
     print(f"\n  WAIT TIMES BY SEVERITY (doctor wait and LOS, 95% CI)")
     print(f"  {'Severity':<10} {'DoctorWait (min)':>20}  {'LOS (min)':>18}")
@@ -524,13 +613,17 @@ def printResults(results: pd.DataFrame, decomp: dict) -> None:
         print(f"  {sev:<10} {dw_m:8.2f} ± {dw_hw:5.2f}       {ls_m:8.2f} ± {ls_hw:5.2f}")
 
     print(f"\nResults saved in: {os.path.abspath(RESULTS_DIR)}/")
-    for f in ["ED_output_analysis.png", "ED_utilisation.png",
-              "ED_gp_posterior.png", "ED_rep_results.csv"]:
+    for f in [
+        "ED_output_analysis.png",
+        "ED_utilisation.png",
+        "ED_gp_posterior.png",
+        "ED_rep_results.csv",
+    ]:
         print(f"  {f}")
 
 
 def _save(fig, filename: str) -> None:
-    """Save a figure to the Results folder and immediately close it to free memory."""
+    """Save a figure to the Results folder and immediately close it."""
     path = os.path.join(RESULTS_DIR, filename)
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -545,13 +638,14 @@ def plotOutputAnalysis(results: pd.DataFrame) -> None:
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     fig.suptitle(
         f"ED Simulation — Output Analysis ({NUM_REPS} Replications, GP Arrival Rates)",
-        fontsize=14, fontweight="bold",
+        fontsize=14,
+        fontweight="bold",
     )
     plotCfg = [
-        ("regWait",    "Registration Wait (min)",  VALIDATION["regWait"],    METRIC_COLORS[0]),
-        ("doctorWait", "Doctor Wait (min)",         VALIDATION["doctorWait"], METRIC_COLORS[1]),
-        ("LOS",        "Length of Stay (min)",      VALIDATION["LOS"],        METRIC_COLORS[2]),
-        ("DoctorUtil", "Doctor Utilisation (%)",    None,                     METRIC_COLORS[3]),
+        ("regWait",    "Registration Wait (min)", VALIDATION["regWait"], METRIC_COLORS[0]),
+        ("doctorWait", "Doctor Wait (min)",       VALIDATION["doctorWait"], METRIC_COLORS[1]),
+        ("LOS",        "Length of Stay (min)",    VALIDATION["LOS"], METRIC_COLORS[2]),
+        ("DoctorUtil", "Doctor Utilisation Overall (%)", None, METRIC_COLORS[3]),
     ]
     for ax, (col, title, target, color) in zip(axes.flat, plotCfg):
         scale = 100 if "util" in col.lower() else 1
@@ -560,7 +654,7 @@ def plotOutputAnalysis(results: pd.DataFrame) -> None:
         mScaled, hwScaled = m * scale, hw * scale
 
         ax.hist(data, bins=15, color=color, alpha=0.7, edgecolor="white")
-        ax.axvline(mScaled, color="black", linestyle="-",  linewidth=2,
+        ax.axvline(mScaled, color="black", linestyle="-", linewidth=2,
                    label=f"Mean = {mScaled:.2f}")
         ax.axvline(mScaled - hwScaled, color="black", linestyle="--", linewidth=1.2,
                    label=f"95% CI ± {hwScaled:.2f}")
@@ -568,6 +662,7 @@ def plotOutputAnalysis(results: pd.DataFrame) -> None:
         if target is not None:
             ax.axvline(target, color="red", linestyle=":", linewidth=2,
                        label=f"Empirical = {target}")
+
         ax.set_title(title, fontweight="bold")
         ax.set_xlabel("Minutes" if scale == 1 else "Utilisation (%)")
         ax.set_ylabel("Frequency")
@@ -579,12 +674,33 @@ def plotOutputAnalysis(results: pd.DataFrame) -> None:
 
 def plotUtilisation(results: pd.DataFrame) -> None:
     """Bar chart of mean resource utilisation with 95% CI error bars."""
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(10, 6))
     fig.suptitle("Resource Utilisation with 95% CI", fontsize=14, fontweight="bold")
 
-    cols   = ["ClerkUtil", "NurseUtil", "DoctorUtil"]
-    labels = ["clerk\n(1 unit)", "nurses\n(2 units)", "doctors\n(3 units)"]
-    colors = [METRIC_COLORS[0], METRIC_COLORS[3], METRIC_COLORS[1]]
+    cols = [
+        "ClerkUtil",
+        "NurseUtil",
+        "DoctorUtil_high",
+        "DoctorUtil_medium",
+        "DoctorUtil_low",
+        "DoctorUtil",
+    ]
+    labels = [
+        "clerk\n(1 unit)",
+        "nurses\n(2 units)",
+        "high docs\n(2 units)",
+        "med docs\n(1 unit)",
+        "low docs\n(1 unit)",
+        "all docs\n(4 units)",
+    ]
+    colors = [
+        METRIC_COLORS[0],
+        METRIC_COLORS[3],
+        "#c0392b",
+        "#f39c12",
+        "#27ae60",
+        METRIC_COLORS[1],
+    ]
     means  = [ci95(results[c])[0] * 100 for c in cols]
     errors = [ci95(results[c])[1] * 100 for c in cols]
 
@@ -598,7 +714,7 @@ def plotUtilisation(results: pd.DataFrame) -> None:
 
     for bar, val, err in zip(bars, means, errors):
         ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + err + 1,
-                f"{val:.1f}%", ha="center", va="bottom", fontsize=10)
+                f"{val:.1f}%", ha="center", va="bottom", fontsize=9)
 
     plt.tight_layout()
     _save(fig, "ED_utilisation.png")
@@ -617,9 +733,13 @@ def plotGPPosterior(gpModel: ArrivalRateGP, hourlyCounts: np.ndarray) -> None:
     )
     empiricalMeans = hourlyCounts.mean(axis=0)
     ax.scatter(
-        np.arange(24) + 0.5, empiricalMeans,
-        color="#e74c3c", zorder=5, s=60,
-        label="Empirical mean (30-day avg)", marker="D",
+        np.arange(24) + 0.5,
+        empiricalMeans,
+        color="#e74c3c",
+        zorder=5,
+        s=60,
+        label="Empirical mean (30-day avg)",
+        marker="D",
     )
     ax.legend(fontsize=9)
     plt.tight_layout()
@@ -629,30 +749,27 @@ def plotGPPosterior(gpModel: ArrivalRateGP, hourlyCounts: np.ndarray) -> None:
 def main() -> None:
     ensureResultsDir(RESULTS_DIR)
 
-    # Build the (n_days, 24) count matrix from the raw CSV
     print("\nLoading arrival data...")
     hourlyCounts = buildHourlyCounts(SOURCE_FILE)
     print(f"  Built ({hourlyCounts.shape[0]} days × {hourlyCounts.shape[1]} hours) count matrix")
 
-    # Fit the GP once before any replications run
     print("Fitting GP arrival rate model...")
     gpModel = ArrivalRateGP(period=24.0, nRestarts=20, randomState=42)
     gpModel.fit(hourlyCounts)
     print(f"  Fitted  |  kernel: {gpModel._gp.kernel_}")
 
-    # Load fitted service time parameters
     global theParams
     theParams = loadParams(PARAMS_FILE)
     printParams(theParams)
 
-    # Run all replications
     print("\nRUNNING SIMULATION  (GP arrival rates — two-level input uncertainty)")
-    print(f"  {NUM_REPS} replications  |  {int(WARMUP_MIN)} min warmup  |  "
-          f"{int(RUN_MIN)} min steady-state run")
+    print(
+        f"  {NUM_REPS} replications  |  {int(WARMUP_MIN)} min warmup  |  "
+        f"{int(RUN_MIN)} min steady-state run"
+    )
 
     repResults = []
     for rep in range(NUM_REPS):
-        # Each replication samples a different plausible rate curve from the GP posterior
         rateFn = gpModel.sampleRateCurve(randomState=rep)
         repResults.append(runReplication(rateFn))
         if (rep + 1) % 10 == 0:
@@ -660,7 +777,6 @@ def main() -> None:
 
     results = pd.DataFrame(repResults)
 
-    # Variance decomposition on doctor wait — primary bottleneck metric
     decomp = gpModel.varianceDecomposition(results["doctorWait"].values)
 
     printResults(results, decomp)

@@ -8,7 +8,7 @@ inter-arrival times using three approaches:
   3. Service times vs. wait times (simulation input vs. validation)
 
 Input   : Sources/er_5000_patients.csv
-Outputs : Results/*.png, Results/simrng_parameters.csv
+Outputs : Results/input_modeling/*.png, Results/input_modeling/simrng_parameters.csv
 """
 
 import os
@@ -23,8 +23,9 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 
 # File paths — edit here only if the project structure changes
-SOURCE_FILE = os.path.join("Sources", "er_5000_patients.csv")
-RESULTS_DIR = "Results"
+BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
+SOURCE_FILE = os.path.join(BASE_DIR, "Sources", "er_5000_patients.csv")
+RESULTS_DIR = os.path.join(BASE_DIR, "Results", "input_modeling")
 
 # Candidate distribution families tested against every time variable
 DISTRIBUTIONS: dict[str, stats.rv_continuous] = {
